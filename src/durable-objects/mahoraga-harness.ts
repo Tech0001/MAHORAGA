@@ -538,9 +538,46 @@ export class MahoragaHarness extends DurableObject<Env> {
   // Example: /webhook for external alerts, /backtest for simulation
   // ============================================================================
 
+  // [SECURITY] Verify Bearer token matches KILL_SWITCH_SECRET
+  private isAuthorized(request: Request): boolean {
+    const secret = this.env.KILL_SWITCH_SECRET;
+    if (!secret) {
+      // If no secret configured, deny all protected requests
+      console.warn("[MahoragaHarness] KILL_SWITCH_SECRET not set - denying protected request");
+      return false;
+    }
+    const authHeader = request.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return false;
+    }
+    const token = authHeader.slice(7);
+    // Constant-time comparison to prevent timing attacks
+    if (token.length !== secret.length) return false;
+    let mismatch = 0;
+    for (let i = 0; i < token.length; i++) {
+      mismatch |= token.charCodeAt(i) ^ secret.charCodeAt(i);
+    }
+    return mismatch === 0;
+  }
+
+  private unauthorizedResponse(): Response {
+    return new Response(
+      JSON.stringify({ error: "Unauthorized. Set Authorization: Bearer <KILL_SWITCH_SECRET>" }),
+      { status: 401, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const action = url.pathname.slice(1);
+
+    // [SECURITY] Protected endpoints require Bearer token authentication
+    const protectedActions = ["enable", "disable", "config", "trigger", "status", "logs", "costs", "signals"];
+    if (protectedActions.includes(action) || (action === "config" && request.method === "POST")) {
+      if (!this.isAuthorized(request)) {
+        return this.unauthorizedResponse();
+      }
+    }
 
     try {
       switch (action) {

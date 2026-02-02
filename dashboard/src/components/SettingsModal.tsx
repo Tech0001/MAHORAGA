@@ -11,10 +11,20 @@ interface SettingsModalProps {
 export function SettingsModal({ config, onSave, onClose }: SettingsModalProps) {
   const [localConfig, setLocalConfig] = useState<Config>(config)
   const [saving, setSaving] = useState(false)
+  const [apiToken, setApiToken] = useState(localStorage.getItem('mahoraga_token') || '')
 
   useEffect(() => {
     setLocalConfig(config)
   }, [config])
+
+  const handleTokenSave = () => {
+    if (apiToken) {
+      localStorage.setItem('mahoraga_token', apiToken)
+    } else {
+      localStorage.removeItem('mahoraga_token')
+    }
+    window.location.reload()
+  }
 
   const handleChange = (key: keyof Config, value: string | number) => {
     setLocalConfig(prev => ({ ...prev, [key]: value }))
@@ -42,6 +52,26 @@ export function SettingsModal({ config, onSave, onClose }: SettingsModalProps) {
         }
       >
         <div onClick={e => e.stopPropagation()} className="space-y-6">
+          {/* API Authentication */}
+          <div className="pb-4 border-b border-hud-line">
+            <h3 className="hud-label mb-3 text-hud-error">API Authentication (Required)</h3>
+            <div className="flex gap-2">
+              <input
+                type="password"
+                className="hud-input flex-1"
+                value={apiToken}
+                onChange={e => setApiToken(e.target.value)}
+                placeholder="Enter KILL_SWITCH_SECRET"
+              />
+              <button className="hud-button" onClick={handleTokenSave}>
+                Save & Reload
+              </button>
+            </div>
+            <p className="text-[9px] text-hud-text-dim mt-1">
+              Your KILL_SWITCH_SECRET from Cloudflare. Required for all API access.
+            </p>
+          </div>
+
           {/* Position Limits */}
           <div>
             <h3 className="hud-label mb-3 text-hud-primary">Position Limits</h3>

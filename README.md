@@ -76,20 +76,29 @@ npx wrangler deploy
 
 ### 5. Enable the agent
 
+All API endpoints require authentication via Bearer token (your `KILL_SWITCH_SECRET`):
+
 ```bash
-curl https://your-worker.workers.dev/agent/enable
+# Set your secret as an env var for convenience
+export MAHORAGA_SECRET="your-kill-switch-secret"
+
+# Enable the agent
+curl -H "Authorization: Bearer $MAHORAGA_SECRET" \
+  https://your-worker.workers.dev/agent/enable
 ```
 
 ### 6. Monitor
 
 ```bash
 # Check status
-curl https://your-worker.workers.dev/agent/status
+curl -H "Authorization: Bearer $MAHORAGA_SECRET" \
+  https://your-worker.workers.dev/agent/status
 
 # View logs
-curl https://your-worker.workers.dev/agent/logs
+curl -H "Authorization: Bearer $MAHORAGA_SECRET" \
+  https://your-worker.workers.dev/agent/logs
 
-# Run dashboard locally
+# Run dashboard locally (configure API_TOKEN in dashboard/.env)
 cd dashboard && npm install && npm run dev
 ```
 
@@ -99,11 +108,12 @@ cd dashboard && npm install && npm run dev
 # Terminal 1 - Start wrangler
 npx wrangler dev
 
-# Terminal 2 - Start dashboard
+# Terminal 2 - Start dashboard  
 cd dashboard && npm run dev
 
 # Terminal 3 - Enable the agent
-curl http://localhost:8787/agent/enable
+curl -H "Authorization: Bearer $MAHORAGA_SECRET" \
+  http://localhost:8787/agent/enable
 ```
 
 ## Customizing the Harness

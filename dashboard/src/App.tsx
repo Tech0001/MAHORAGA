@@ -13,6 +13,22 @@ import type { Status, Config, LogEntry, Signal, Position, SignalResearch, Portfo
 
 const API_BASE = '/api'
 
+function getApiToken(): string {
+  return localStorage.getItem('mahoraga_token') || (window as unknown as { VITE_API_TOKEN?: string }).VITE_API_TOKEN || ''
+}
+
+function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const token = getApiToken()
+  const headers = new Headers(options.headers)
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+  if (!headers.has('Content-Type') && options.body) {
+    headers.set('Content-Type', 'application/json')
+  }
+  return fetch(url, { ...options, headers })
+}
+
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -120,7 +136,7 @@ export default function App() {
   useEffect(() => {
     const checkSetup = async () => {
       try {
-        const res = await fetch(`${API_BASE}/setup/status`)
+        const res = await authFetch(`${API_BASE}/setup/status`)
         const data = await res.json()
         if (data.ok && !data.data.configured) {
           setShowSetup(true)
@@ -136,7 +152,7 @@ export default function App() {
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const res = await fetch(`${API_BASE}/status`)
+        const res = await authFetch(`${API_BASE}/status`)
         const data = await res.json()
         if (data.ok) {
           setStatus(data.data)
@@ -185,9 +201,8 @@ export default function App() {
   }, [status?.logs])
 
   const handleSaveConfig = async (config: Config) => {
-    const res = await fetch(`${API_BASE}/config`, {
+    const res = await authFetch(`${API_BASE}/config`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(config),
     })
     const data = await res.json()
