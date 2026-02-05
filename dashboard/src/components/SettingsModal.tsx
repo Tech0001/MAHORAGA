@@ -559,6 +559,7 @@ export function SettingsModal({ config, onSave, onClose }: SettingsModalProps) {
           <div>
             <h3 className="hud-label mb-3 text-hud-success">DEX Momentum (Solana Gems)</h3>
             <div className="grid grid-cols-2 gap-4">
+              {/* Global Enable & Risk Settings */}
               <div className="col-span-2">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -569,78 +570,27 @@ export function SettingsModal({ config, onSave, onClose }: SettingsModalProps) {
                   />
                   <span className="hud-label">Enable DEX Momentum Trading</span>
                 </label>
-                <p className="text-[9px] text-hud-text-dim mt-1">Hunt Solana gems via DexScreener. Filters 3-14 day old tokens with proven momentum (not brand new rugs).</p>
+                <p className="text-[9px] text-hud-text-dim mt-1">Hunt Solana gems via DexScreener with multi-tier system.</p>
               </div>
               <div>
-                <label className="hud-label block mb-1">Min Age (days)</label>
-                <input
-                  type="number"
-                  className="hud-input w-full"
-                  value={localConfig.dex_min_age_days || 3}
-                  onChange={e => handleChange('dex_min_age_days', Number(e.target.value))}
-                  disabled={!localConfig.dex_enabled}
-                />
-                <p className="text-[9px] text-hud-text-dim mt-1">Skip brand-new honeypots</p>
-              </div>
-              <div>
-                <label className="hud-label block mb-1">Max Age (days)</label>
-                <input
-                  type="number"
-                  className="hud-input w-full"
-                  value={localConfig.dex_max_age_days || 14}
-                  onChange={e => handleChange('dex_max_age_days', Number(e.target.value))}
-                  disabled={!localConfig.dex_enabled}
-                />
-                <p className="text-[9px] text-hud-text-dim mt-1">Before CEX listing hype fades</p>
-              </div>
-              <div>
-                <label className="hud-label block mb-1">Min Liquidity ($)</label>
-                <input
-                  type="number"
-                  className="hud-input w-full"
-                  value={localConfig.dex_min_liquidity || 50000}
-                  onChange={e => handleChange('dex_min_liquidity', Number(e.target.value))}
-                  disabled={!localConfig.dex_enabled}
-                />
-              </div>
-              <div>
-                <label className="hud-label block mb-1">Min Volume 24h ($)</label>
-                <input
-                  type="number"
-                  className="hud-input w-full"
-                  value={localConfig.dex_min_volume_24h || 10000}
-                  onChange={e => handleChange('dex_min_volume_24h', Number(e.target.value))}
-                  disabled={!localConfig.dex_enabled}
-                />
-              </div>
-              <div>
-                <label className="hud-label block mb-1">Min Price Change 24h (%)</label>
-                <input
-                  type="number"
-                  className="hud-input w-full"
-                  value={localConfig.dex_min_price_change || 5}
-                  onChange={e => handleChange('dex_min_price_change', Number(e.target.value))}
-                  disabled={!localConfig.dex_enabled}
-                />
-              </div>
-              <div>
-                <label className="hud-label block mb-1">Max Position (SOL)</label>
+                <label className="hud-label block mb-1">Starting Balance (SOL)</label>
                 <input
                   type="number"
                   step="0.1"
                   className="hud-input w-full"
-                  value={localConfig.dex_max_position_sol || 0.5}
-                  onChange={e => handleChange('dex_max_position_sol', Number(e.target.value))}
+                  value={localConfig.dex_starting_balance_sol || 1}
+                  onChange={e => handleChange('dex_starting_balance_sol', Number(e.target.value))}
                   disabled={!localConfig.dex_enabled}
                 />
               </div>
               <div>
-                <label className="hud-label block mb-1">Max Positions</label>
+                <label className="hud-label block mb-1">Max Position Cap (SOL)</label>
                 <input
                   type="number"
+                  step="0.1"
                   className="hud-input w-full"
-                  value={localConfig.dex_max_positions || 5}
-                  onChange={e => handleChange('dex_max_positions', Number(e.target.value))}
+                  value={localConfig.dex_max_position_sol || 1}
+                  onChange={e => handleChange('dex_max_position_sol', Number(e.target.value))}
                   disabled={!localConfig.dex_enabled}
                 />
               </div>
@@ -649,7 +599,7 @@ export function SettingsModal({ config, onSave, onClose }: SettingsModalProps) {
                 <input
                   type="number"
                   className="hud-input w-full"
-                  value={localConfig.dex_take_profit_pct || 50}
+                  value={localConfig.dex_take_profit_pct || 100}
                   onChange={e => handleChange('dex_take_profit_pct', Number(e.target.value))}
                   disabled={!localConfig.dex_enabled}
                 />
@@ -659,13 +609,243 @@ export function SettingsModal({ config, onSave, onClose }: SettingsModalProps) {
                 <input
                   type="number"
                   className="hud-input w-full"
-                  value={localConfig.dex_stop_loss_pct || 15}
+                  value={localConfig.dex_stop_loss_pct || 30}
                   onChange={e => handleChange('dex_stop_loss_pct', Number(e.target.value))}
                   disabled={!localConfig.dex_enabled}
                 />
               </div>
-              <div className="col-span-2 p-2 bg-hud-bg-dark rounded border border-hud-line">
-                <p className="text-[9px] text-hud-warning">⚠️ Requires Solana wallet setup for actual trades. Currently monitors only.</p>
+
+              {/* MICRO-SPRAY TIER */}
+              <div className="col-span-2 mt-4 pt-4 border-t border-hud-line">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="hud-input w-4 h-4"
+                    checked={localConfig.dex_microspray_enabled || false}
+                    onChange={e => handleChange('dex_microspray_enabled', e.target.checked ? 1 : 0)}
+                    disabled={!localConfig.dex_enabled}
+                  />
+                  <span className="hud-label text-hud-purple">MICRO-SPRAY</span>
+                  <span className="text-[9px] text-hud-text-dim">30min - 2h old</span>
+                </label>
+                <p className="text-[9px] text-hud-text-dim mt-1">Ultra-tiny spray bets on fresh tokens. Highest risk.</p>
+              </div>
+              <div>
+                <label className="hud-label block mb-1">Position Size (SOL)</label>
+                <input
+                  type="number"
+                  step="0.001"
+                  className="hud-input w-full"
+                  value={localConfig.dex_microspray_position_sol || 0.005}
+                  onChange={e => handleChange('dex_microspray_position_sol', Number(e.target.value))}
+                  disabled={!localConfig.dex_enabled || !localConfig.dex_microspray_enabled}
+                />
+              </div>
+              <div>
+                <label className="hud-label block mb-1">Max Positions</label>
+                <input
+                  type="number"
+                  className="hud-input w-full"
+                  value={localConfig.dex_microspray_max_positions || 10}
+                  onChange={e => handleChange('dex_microspray_max_positions', Number(e.target.value))}
+                  disabled={!localConfig.dex_enabled || !localConfig.dex_microspray_enabled}
+                />
+              </div>
+
+              {/* BREAKOUT TIER */}
+              <div className="col-span-2 mt-4 pt-4 border-t border-hud-line">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="hud-input w-4 h-4"
+                    checked={localConfig.dex_breakout_enabled || false}
+                    onChange={e => handleChange('dex_breakout_enabled', e.target.checked ? 1 : 0)}
+                    disabled={!localConfig.dex_enabled}
+                  />
+                  <span className="hud-label text-hud-error">BREAKOUT</span>
+                  <span className="text-[9px] text-hud-text-dim">2h - 6h old</span>
+                </label>
+                <p className="text-[9px] text-hud-text-dim mt-1">Catch rapid 5-minute pumps. Requires minimum pump threshold.</p>
+              </div>
+              <div>
+                <label className="hud-label block mb-1">Min 5m Pump (%)</label>
+                <input
+                  type="number"
+                  className="hud-input w-full"
+                  value={localConfig.dex_breakout_min_5m_pump || 50}
+                  onChange={e => handleChange('dex_breakout_min_5m_pump', Number(e.target.value))}
+                  disabled={!localConfig.dex_enabled || !localConfig.dex_breakout_enabled}
+                />
+              </div>
+              <div>
+                <label className="hud-label block mb-1">Position Size (SOL)</label>
+                <input
+                  type="number"
+                  step="0.001"
+                  className="hud-input w-full"
+                  value={localConfig.dex_breakout_position_sol || 0.015}
+                  onChange={e => handleChange('dex_breakout_position_sol', Number(e.target.value))}
+                  disabled={!localConfig.dex_enabled || !localConfig.dex_breakout_enabled}
+                />
+              </div>
+              <div>
+                <label className="hud-label block mb-1">Max Positions</label>
+                <input
+                  type="number"
+                  className="hud-input w-full"
+                  value={localConfig.dex_breakout_max_positions || 5}
+                  onChange={e => handleChange('dex_breakout_max_positions', Number(e.target.value))}
+                  disabled={!localConfig.dex_enabled || !localConfig.dex_breakout_enabled}
+                />
+              </div>
+
+              {/* LOTTERY TIER */}
+              <div className="col-span-2 mt-4 pt-4 border-t border-hud-line">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="hud-input w-4 h-4"
+                    checked={localConfig.dex_lottery_enabled ?? true}
+                    onChange={e => handleChange('dex_lottery_enabled', e.target.checked ? 1 : 0)}
+                    disabled={!localConfig.dex_enabled}
+                  />
+                  <span className="hud-label text-hud-success">LOTTERY ✓</span>
+                  <span className="text-[9px] text-hud-text-dim">1h - 6h old</span>
+                </label>
+                <p className="text-[9px] text-hud-text-dim mt-1">Proven working tier. Fixed tiny positions on momentum tokens.</p>
+              </div>
+              <div>
+                <label className="hud-label block mb-1">Position Size (SOL)</label>
+                <input
+                  type="number"
+                  step="0.001"
+                  className="hud-input w-full"
+                  value={localConfig.dex_lottery_position_sol || 0.02}
+                  onChange={e => handleChange('dex_lottery_position_sol', Number(e.target.value))}
+                  disabled={!localConfig.dex_enabled || !localConfig.dex_lottery_enabled}
+                />
+              </div>
+              <div>
+                <label className="hud-label block mb-1">Max Positions</label>
+                <input
+                  type="number"
+                  className="hud-input w-full"
+                  value={localConfig.dex_lottery_max_positions || 5}
+                  onChange={e => handleChange('dex_lottery_max_positions', Number(e.target.value))}
+                  disabled={!localConfig.dex_enabled || !localConfig.dex_lottery_enabled}
+                />
+              </div>
+              <div>
+                <label className="hud-label block mb-1">Min Liquidity ($)</label>
+                <input
+                  type="number"
+                  className="hud-input w-full"
+                  value={localConfig.dex_lottery_min_liquidity || 15000}
+                  onChange={e => handleChange('dex_lottery_min_liquidity', Number(e.target.value))}
+                  disabled={!localConfig.dex_enabled || !localConfig.dex_lottery_enabled}
+                />
+              </div>
+
+              {/* EARLY GEMS TIER */}
+              <div className="col-span-2 mt-4 pt-4 border-t border-hud-line">
+                <span className="hud-label text-hud-cyan">EARLY GEMS</span>
+                <span className="text-[9px] text-hud-text-dim ml-2">6h - 3d old</span>
+                <p className="text-[9px] text-hud-text-dim mt-1">Requires legitimacy signals (website/socials). Position size reduced.</p>
+              </div>
+              <div>
+                <label className="hud-label block mb-1">Min Age (days)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  className="hud-input w-full"
+                  value={localConfig.dex_early_min_age_days || 0.25}
+                  onChange={e => handleChange('dex_early_min_age_days', Number(e.target.value))}
+                  disabled={!localConfig.dex_enabled}
+                />
+              </div>
+              <div>
+                <label className="hud-label block mb-1">Max Age (days)</label>
+                <input
+                  type="number"
+                  step="0.5"
+                  className="hud-input w-full"
+                  value={localConfig.dex_early_max_age_days || 3}
+                  onChange={e => handleChange('dex_early_max_age_days', Number(e.target.value))}
+                  disabled={!localConfig.dex_enabled}
+                />
+              </div>
+              <div>
+                <label className="hud-label block mb-1">Min Liquidity ($)</label>
+                <input
+                  type="number"
+                  className="hud-input w-full"
+                  value={localConfig.dex_early_min_liquidity || 30000}
+                  onChange={e => handleChange('dex_early_min_liquidity', Number(e.target.value))}
+                  disabled={!localConfig.dex_enabled}
+                />
+              </div>
+              <div>
+                <label className="hud-label block mb-1">Min Legitimacy (0-100)</label>
+                <input
+                  type="number"
+                  className="hud-input w-full"
+                  value={localConfig.dex_early_min_legitimacy || 40}
+                  onChange={e => handleChange('dex_early_min_legitimacy', Number(e.target.value))}
+                  disabled={!localConfig.dex_enabled}
+                />
+              </div>
+              <div>
+                <label className="hud-label block mb-1">Position Size (% of normal)</label>
+                <input
+                  type="number"
+                  className="hud-input w-full"
+                  value={localConfig.dex_early_position_size_pct || 50}
+                  onChange={e => handleChange('dex_early_position_size_pct', Number(e.target.value))}
+                  disabled={!localConfig.dex_enabled}
+                />
+              </div>
+
+              {/* ESTABLISHED TIER */}
+              <div className="col-span-2 mt-4 pt-4 border-t border-hud-line">
+                <span className="hud-label text-hud-primary">ESTABLISHED</span>
+                <span className="text-[9px] text-hud-text-dim ml-2">3d - 14d old</span>
+                <p className="text-[9px] text-hud-text-dim mt-1">Proven survivors. Higher liquidity required.</p>
+              </div>
+              <div>
+                <label className="hud-label block mb-1">Min Age (days)</label>
+                <input
+                  type="number"
+                  step="0.5"
+                  className="hud-input w-full"
+                  value={localConfig.dex_established_min_age_days || 3}
+                  onChange={e => handleChange('dex_established_min_age_days', Number(e.target.value))}
+                  disabled={!localConfig.dex_enabled}
+                />
+              </div>
+              <div>
+                <label className="hud-label block mb-1">Max Age (days)</label>
+                <input
+                  type="number"
+                  className="hud-input w-full"
+                  value={localConfig.dex_established_max_age_days || 14}
+                  onChange={e => handleChange('dex_established_max_age_days', Number(e.target.value))}
+                  disabled={!localConfig.dex_enabled}
+                />
+                <p className="text-[9px] text-hud-text-dim mt-1">Older = filtered as "tooOld"</p>
+              </div>
+              <div>
+                <label className="hud-label block mb-1">Min Liquidity ($)</label>
+                <input
+                  type="number"
+                  className="hud-input w-full"
+                  value={localConfig.dex_established_min_liquidity || 50000}
+                  onChange={e => handleChange('dex_established_min_liquidity', Number(e.target.value))}
+                  disabled={!localConfig.dex_enabled}
+                />
+              </div>
+
+              <div className="col-span-2 mt-4 p-2 bg-hud-bg-dark rounded border border-hud-line">
+                <p className="text-[9px] text-hud-warning">⚠️ Paper trading only. Solana wallet integration coming soon.</p>
               </div>
             </div>
           </div>

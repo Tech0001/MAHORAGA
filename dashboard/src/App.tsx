@@ -9,7 +9,7 @@ import { SetupWizard } from './components/SetupWizard'
 import { LineChart, Sparkline } from './components/LineChart'
 import { NotificationBell } from './components/NotificationBell'
 import { Tooltip, TooltipContent } from './components/Tooltip'
-import type { Status, Config, LogEntry, Signal, Position, SignalResearch, PortfolioSnapshot, DexMomentumSignal, DexPosition } from './types'
+import type { Status, Config, LogEntry, Signal, Position, SignalResearch, PortfolioSnapshot, DexMomentumSignal, DexPosition, CrisisLevel } from './types'
 
 const API_BASE = '/api'
 
@@ -79,6 +79,36 @@ function getSentimentColor(score: number): string {
   return 'text-hud-warning'
 }
 
+function getCrisisLevelColor(level: CrisisLevel): string {
+  switch (level) {
+    case 0: return 'text-hud-success'
+    case 1: return 'text-hud-warning'
+    case 2: return 'text-orange-500'
+    case 3: return 'text-hud-error'
+    default: return 'text-hud-text-dim'
+  }
+}
+
+function getCrisisLevelBg(level: CrisisLevel): string {
+  switch (level) {
+    case 0: return 'bg-hud-success/20'
+    case 1: return 'bg-hud-warning/20'
+    case 2: return 'bg-orange-500/20'
+    case 3: return 'bg-hud-error/20'
+    default: return 'bg-hud-panel'
+  }
+}
+
+function getCrisisLevelLabel(level: CrisisLevel): string {
+  switch (level) {
+    case 0: return 'NORMAL'
+    case 1: return 'ELEVATED'
+    case 2: return 'HIGH ALERT'
+    case 3: return 'FULL CRISIS'
+    default: return 'UNKNOWN'
+  }
+}
+
 // Generate mock portfolio history for demo (will be replaced by real data from API)
 function generateMockPortfolioHistory(equity: number, points: number = 24): PortfolioSnapshot[] {
   const history: PortfolioSnapshot[] = []
@@ -143,6 +173,41 @@ export default function App() {
     localStorage.setItem('theme', theme)
   }, [theme])
   const [portfolioHistory, setPortfolioHistory] = useState<PortfolioSnapshot[]>([])
+
+  // Fetch real SOL price (cached for 5 minutes)
+  const [solPriceUsd, setSolPriceUsd] = useState<number>(200) // Fallback
+  useEffect(() => {
+    const fetchSolPrice = async () => {
+      try {
+        const res = await fetch(
+          'https://api.dexscreener.com/latest/dex/tokens/So11111111111111111111111111111111111111112'
+        )
+        if (!res.ok) return
+        const data = await res.json()
+        const pairs = data.pairs || []
+        // Find highest liquidity SOL pair
+        const solPair = pairs
+          .filter((p: { priceUsd?: string; liquidity?: { usd?: number } }) =>
+            p.priceUsd && p.liquidity?.usd && p.liquidity.usd > 100000
+          )
+          .sort((a: { liquidity?: { usd?: number } }, b: { liquidity?: { usd?: number } }) =>
+            (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
+          )[0]
+        if (solPair?.priceUsd) {
+          const price = parseFloat(solPair.priceUsd)
+          if (!isNaN(price) && price > 0) {
+            setSolPriceUsd(price)
+          }
+        }
+      } catch {
+        // Keep fallback price
+      }
+    }
+    fetchSolPrice()
+    // Refresh every 5 minutes
+    const interval = setInterval(fetchSolPrice, 5 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [])
 
   useEffect(() => {
     const checkSetup = async () => {
@@ -218,6 +283,43 @@ export default function App() {
     }
   }
 
+  const handleDexClearCooldowns = async () => {
+    try {
+      const res = await authFetch(`${API_BASE}/dex/clear-cooldowns`, { method: 'POST' })
+      const data = await res.json()
+      if (data.ok) {
+        alert(`Cleared ${data.clearedCount} cooldowns`)
+      }
+    } catch (err) {
+      console.error('Failed to clear cooldowns:', err)
+    }
+  }
+
+  const handleDexClearBreaker = async () => {
+    try {
+      const res = await authFetch(`${API_BASE}/dex/clear-breaker`, { method: 'POST' })
+      const data = await res.json()
+      if (data.ok) {
+        alert(data.message)
+      }
+    } catch (err) {
+      console.error('Failed to clear breaker:', err)
+    }
+  }
+
+  const handleDexReset = async () => {
+    if (!confirm('Reset DEX paper trading? This will clear all positions and reset balance to 1 SOL.')) return
+    try {
+      const res = await authFetch(`${API_BASE}/dex/reset`, { method: 'POST' })
+      const data = await res.json()
+      if (data.ok) {
+        alert(`DEX reset. Paper balance: ${data.paperBalance} SOL`)
+      }
+    } catch (err) {
+      console.error('Failed to reset DEX:', err)
+    }
+  }
+
   // Derived state (must stay above early returns per React hooks rules)
   const account = status?.account
   const positions = status?.positions || []
@@ -230,14 +332,14 @@ export default function App() {
   const startingEquity = config?.starting_equity || 100000
   const totalPl = account ? account.equity - startingEquity : 0
 
-  // DEX Paper Trading values (convert SOL to USD, assume ~$200/SOL for now)
-  const SOL_PRICE_USD = 200
+  // DEX Paper Trading values (convert SOL to USD using real price)
   const dexPaperTrading = status?.dexPaperTrading
   const dexPositions = status?.dexPositions || []
-  const dexPaperBalanceUsd = (dexPaperTrading?.paperBalance || 0) * SOL_PRICE_USD
-  const dexRealizedPl = (dexPaperTrading?.realizedPnL || 0) * SOL_PRICE_USD
+  const dexPaperBalanceUsd = (dexPaperTrading?.paperBalance || 0) * solPriceUsd
+  const dexRealizedPl = (dexPaperTrading?.realizedPnL || 0) * solPriceUsd
   const dexTotalValue = dexPaperBalanceUsd + dexPositions.reduce((sum, p) => sum + (p.currentValue || 0), 0)
-  const dexStartingValue = 1.0 * SOL_PRICE_USD // Started with 1 SOL
+  const dexStartingBalanceSol = config?.dex_starting_balance_sol || 1.0
+  const dexStartingValue = dexStartingBalanceSol * solPriceUsd
   const dexTotalPl = dexTotalValue - dexStartingValue + dexRealizedPl
 
   // Combined totals
@@ -257,29 +359,59 @@ export default function App() {
     return histories
   }, [positions.map(p => p.symbol).join(',')])
 
-  // Chart data derived from portfolio history
+  // DEX portfolio history from API
+  const dexPortfolioHistory = status?.dexPortfolioHistory || []
+
+  // Crisis Mode state
+  const crisisState = status?.crisisState
+  const lastCrisisCheck = status?.lastCrisisCheck || 0
+
+  // Chart data - show absolute dollar values
   const portfolioChartData = useMemo(() => {
     return portfolioHistory.map(s => s.equity)
   }, [portfolioHistory])
 
-  // DEX chart data - generate trend line based on current P&L
+  // DEX chart data - use real history, show in USD
+  // Pad to match stocks array length so they align on the same x-axis
   const dexChartData = useMemo(() => {
-    if (!config?.dex_enabled || portfolioHistory.length < 2) return []
-    // Create a line from starting value to current value
-    const points = portfolioHistory.length
-    const startVal = dexStartingValue
-    const endVal = dexTotalValue
-    return Array.from({ length: points }, (_, i) => {
-      const progress = i / (points - 1)
-      return startVal + (endVal - startVal) * progress
-    })
-  }, [portfolioHistory.length, dexTotalValue, dexStartingValue, config?.dex_enabled])
+    if (!config?.dex_enabled) return []
 
+    const targetLength = portfolioHistory.length
+
+    // Use real history if available
+    if (dexPortfolioHistory.length >= 1) {
+      const dexValues = dexPortfolioHistory.map(s => s.totalValueSol * solPriceUsd)
+
+      // Pad the beginning with the first value to match stocks array length
+      if (dexValues.length < targetLength) {
+        const padding = Array(targetLength - dexValues.length).fill(dexValues[0])
+        return [...padding, ...dexValues]
+      }
+      return dexValues.slice(-targetLength) // Keep only last N points if too many
+    }
+
+    // Fallback: show current value across the whole timeline
+    if (targetLength >= 2) {
+      return Array(targetLength).fill(dexTotalValue)
+    }
+
+    return []
+  }, [dexPortfolioHistory, dexTotalValue, portfolioHistory.length, config?.dex_enabled, solPriceUsd])
+
+  // Combined labels from stocks history (primary) or DEX history
   const portfolioChartLabels = useMemo(() => {
-    return portfolioHistory.map(s => 
-      new Date(s.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
-    )
-  }, [portfolioHistory])
+    if (portfolioHistory.length > 0) {
+      return portfolioHistory.map(s =>
+        new Date(s.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
+      )
+    }
+    if (dexPortfolioHistory.length > 0) {
+      return dexPortfolioHistory.map(s =>
+        new Date(s.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
+      )
+    }
+    return []
+  }, [portfolioHistory, dexPortfolioHistory])
 
   // Normalize position price histories to % change for stacked comparison view
   const normalizedPositionSeries = useMemo(() => {
@@ -434,7 +566,7 @@ export default function App() {
                       />
                       {config?.dex_enabled && (
                         <MetricInline
-                          label="DEX (PAPER)"
+                          label="DEX"
                           value={formatCurrency(dexTotalPl)}
                           color={dexTotalPl >= 0 ? 'success' : 'error'}
                         />
@@ -548,21 +680,298 @@ export default function App() {
             </Panel>
           </div>
 
+          {/* Crisis Mode Panel - Black Swan Protection */}
+          {config?.crisis_mode_enabled && (
+            <div className="col-span-4 md:col-span-8 lg:col-span-12">
+              <Panel
+                title="CRISIS MONITOR"
+                titleRight={crisisState ? `Last check: ${lastCrisisCheck ? new Date(lastCrisisCheck).toLocaleTimeString() : 'Never'}` : 'DISABLED'}
+                className="h-auto"
+              >
+                {crisisState ? (
+                  <div className="space-y-3">
+                    {/* Crisis Level Banner */}
+                    <div className={clsx(
+                      'flex items-center justify-between p-3 rounded border',
+                      getCrisisLevelBg(crisisState.level),
+                      crisisState.level === 0 ? 'border-hud-success/30' :
+                      crisisState.level === 1 ? 'border-hud-warning/30' :
+                      crisisState.level === 2 ? 'border-orange-500/30' :
+                      'border-hud-error/30'
+                    )}>
+                      <div className="flex items-center gap-3">
+                        <span className={clsx(
+                          'text-2xl font-mono font-bold',
+                          getCrisisLevelColor(crisisState.level)
+                        )}>
+                          LEVEL {crisisState.level}
+                        </span>
+                        <span className={clsx(
+                          'text-lg font-semibold',
+                          getCrisisLevelColor(crisisState.level)
+                        )}>
+                          {getCrisisLevelLabel(crisisState.level)}
+                        </span>
+                      </div>
+                      {crisisState.manualOverride && (
+                        <span className="px-2 py-1 bg-hud-purple/20 text-hud-purple text-xs rounded">
+                          MANUAL OVERRIDE
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Indicators Grid - Row 1: Core Indicators */}
+                    <div className="grid grid-cols-3 md:grid-cols-6 lg:grid-cols-8 gap-3">
+                      {/* VIX */}
+                      <div className="space-y-1 cursor-help" title="Fear Index - measures expected market volatility. High = panic selling likely.">
+                        <span className="hud-label">VIX</span>
+                        <div className={clsx(
+                          'font-mono text-lg',
+                          crisisState.indicators.vix !== null && crisisState.indicators.vix >= (config?.crisis_vix_elevated || 25)
+                            ? crisisState.indicators.vix >= (config?.crisis_vix_critical || 45) ? 'text-hud-error' : 'text-hud-warning'
+                            : 'text-hud-success'
+                        )}>
+                          {crisisState.indicators.vix?.toFixed(1) ?? 'N/A'}
+                        </div>
+                      </div>
+                      {/* Yield Curve */}
+                      <div className="space-y-1 cursor-help" title="Treasury Yield Curve - negative (inverted) = recession signal. Banks lose money lending.">
+                        <span className="hud-label">2Y/10Y</span>
+                        <div className={clsx(
+                          'font-mono text-lg',
+                          crisisState.indicators.yieldCurve2Y10Y !== null && crisisState.indicators.yieldCurve2Y10Y <= (config?.crisis_yield_curve_inversion_critical || -0.5)
+                            ? 'text-hud-error'
+                            : crisisState.indicators.yieldCurve2Y10Y !== null && crisisState.indicators.yieldCurve2Y10Y <= (config?.crisis_yield_curve_inversion_warning || 0.25)
+                            ? 'text-hud-warning'
+                            : 'text-hud-success'
+                        )}>
+                          {crisisState.indicators.yieldCurve2Y10Y !== null ? `${(crisisState.indicators.yieldCurve2Y10Y * 100).toFixed(0)}bp` : 'N/A'}
+                        </div>
+                      </div>
+                      {/* TED Spread */}
+                      <div className="space-y-1 cursor-help" title="TED Spread - gap between bank lending rates and T-bills. High = banks don't trust each other.">
+                        <span className="hud-label">TED</span>
+                        <div className={clsx(
+                          'font-mono text-lg',
+                          crisisState.indicators.tedSpread !== null && crisisState.indicators.tedSpread >= (config?.crisis_ted_spread_critical || 1.0)
+                            ? 'text-hud-error'
+                            : crisisState.indicators.tedSpread !== null && crisisState.indicators.tedSpread >= (config?.crisis_ted_spread_warning || 0.5)
+                            ? 'text-hud-warning'
+                            : 'text-hud-success'
+                        )}>
+                          {crisisState.indicators.tedSpread?.toFixed(2) ?? 'N/A'}%
+                        </div>
+                      </div>
+                      {/* DXY Dollar Index */}
+                      <div className="space-y-1 cursor-help" title="Dollar Index - high = flight to safety, global risk-off. Everyone fleeing to USD.">
+                        <span className="hud-label">DXY</span>
+                        <div className={clsx(
+                          'font-mono text-lg',
+                          crisisState.indicators.dxy !== null && crisisState.indicators.dxy >= (config?.crisis_dxy_critical || 110)
+                            ? 'text-hud-error'
+                            : crisisState.indicators.dxy !== null && crisisState.indicators.dxy >= (config?.crisis_dxy_elevated || 105)
+                            ? 'text-hud-warning'
+                            : 'text-hud-success'
+                        )}>
+                          {crisisState.indicators.dxy?.toFixed(1) ?? 'N/A'}
+                        </div>
+                      </div>
+                      {/* USD/JPY */}
+                      <div className="space-y-1 cursor-help" title="Yen Carry Trade - low/falling = carry trade unwinding, global deleveraging. Japan selling treasuries.">
+                        <span className="hud-label">USD/JPY</span>
+                        <div className={clsx(
+                          'font-mono text-lg',
+                          crisisState.indicators.usdJpy !== null && crisisState.indicators.usdJpy <= (config?.crisis_usdjpy_critical || 130)
+                            ? 'text-hud-error'
+                            : crisisState.indicators.usdJpy !== null && crisisState.indicators.usdJpy <= (config?.crisis_usdjpy_warning || 140)
+                            ? 'text-hud-warning'
+                            : 'text-hud-success'
+                        )}>
+                          {crisisState.indicators.usdJpy?.toFixed(1) ?? 'N/A'}
+                        </div>
+                      </div>
+                      {/* HY Spread */}
+                      <div className="space-y-1 cursor-help" title="High Yield Spread - gap between junk bonds and treasuries. High = corporate default risk rising.">
+                        <span className="hud-label">HY SPRD</span>
+                        <div className={clsx(
+                          'font-mono text-lg',
+                          crisisState.indicators.highYieldSpread !== null && crisisState.indicators.highYieldSpread >= (config?.crisis_hy_spread_critical || 600)
+                            ? 'text-hud-error'
+                            : crisisState.indicators.highYieldSpread !== null && crisisState.indicators.highYieldSpread >= (config?.crisis_hy_spread_warning || 400)
+                            ? 'text-hud-warning'
+                            : 'text-hud-success'
+                        )}>
+                          {crisisState.indicators.highYieldSpread?.toFixed(0) ?? 'N/A'}
+                        </div>
+                      </div>
+                      {/* KRE Regional Banks 7D */}
+                      <div className="space-y-1 cursor-help" title="Regional Bank ETF weekly change - sharp drops = banking sector stress, potential contagion.">
+                        <span className="hud-label">KRE 7D</span>
+                        <div className={clsx(
+                          'font-mono text-lg',
+                          crisisState.indicators.kreWeeklyChange !== null && crisisState.indicators.kreWeeklyChange <= (config?.crisis_kre_weekly_critical || -20)
+                            ? 'text-hud-error'
+                            : crisisState.indicators.kreWeeklyChange !== null && crisisState.indicators.kreWeeklyChange <= (config?.crisis_kre_weekly_warning || -10)
+                            ? 'text-hud-warning'
+                            : 'text-hud-success'
+                        )}>
+                          {crisisState.indicators.kreWeeklyChange !== null ? `${crisisState.indicators.kreWeeklyChange >= 0 ? '+' : ''}${crisisState.indicators.kreWeeklyChange.toFixed(1)}%` : 'N/A'}
+                        </div>
+                      </div>
+                      {/* Fed Balance Sheet Change */}
+                      <div className="space-y-1 cursor-help" title="Fed Balance Sheet weekly change - rapid expansion = emergency intervention, something is breaking.">
+                        <span className="hud-label">FED BS</span>
+                        <div className={clsx(
+                          'font-mono text-lg',
+                          crisisState.indicators.fedBalanceSheetChange !== null && Math.abs(crisisState.indicators.fedBalanceSheetChange) >= (config?.crisis_fed_balance_change_critical || 5)
+                            ? 'text-hud-error'
+                            : crisisState.indicators.fedBalanceSheetChange !== null && Math.abs(crisisState.indicators.fedBalanceSheetChange) >= (config?.crisis_fed_balance_change_warning || 2)
+                            ? 'text-hud-warning'
+                            : 'text-hud-success'
+                        )}>
+                          {crisisState.indicators.fedBalanceSheetChange !== null ? `${crisisState.indicators.fedBalanceSheetChange >= 0 ? '+' : ''}${crisisState.indicators.fedBalanceSheetChange.toFixed(1)}%` : 'N/A'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Indicators Grid - Row 2: Crypto, Metals, Breadth */}
+                    <div className="grid grid-cols-3 md:grid-cols-6 lg:grid-cols-8 gap-3 mt-3">
+                      {/* BTC Price */}
+                      <div className="space-y-1 cursor-help" title="Bitcoin - risk asset barometer. Sharp drops signal risk-off, liquidity crunch.">
+                        <span className="hud-label">BTC</span>
+                        <div className={clsx(
+                          'font-mono text-lg',
+                          crisisState.indicators.btcWeeklyChange !== null && crisisState.indicators.btcWeeklyChange <= (config?.crisis_btc_weekly_drop_pct || -20)
+                            ? 'text-hud-error'
+                            : crisisState.indicators.btcWeeklyChange !== null && crisisState.indicators.btcWeeklyChange <= -10
+                            ? 'text-orange-500'
+                            : crisisState.indicators.btcWeeklyChange !== null && crisisState.indicators.btcWeeklyChange < 0
+                            ? 'text-hud-warning'
+                            : 'text-hud-success'
+                        )}>
+                          {crisisState.indicators.btcPrice ? `$${(crisisState.indicators.btcPrice / 1000).toFixed(1)}k` : 'N/A'}
+                        </div>
+                      </div>
+                      {/* BTC 7D */}
+                      <div className="space-y-1 cursor-help" title="Bitcoin weekly momentum - large drops often precede or accompany equity selloffs.">
+                        <span className="hud-label">BTC 7D</span>
+                        <div className={clsx(
+                          'font-mono text-lg',
+                          crisisState.indicators.btcWeeklyChange !== null && crisisState.indicators.btcWeeklyChange <= (config?.crisis_btc_weekly_drop_pct || -20)
+                            ? 'text-hud-error'
+                            : crisisState.indicators.btcWeeklyChange !== null && crisisState.indicators.btcWeeklyChange < 0
+                            ? 'text-hud-warning'
+                            : 'text-hud-success'
+                        )}>
+                          {crisisState.indicators.btcWeeklyChange !== null ? `${crisisState.indicators.btcWeeklyChange >= 0 ? '+' : ''}${crisisState.indicators.btcWeeklyChange.toFixed(1)}%` : 'N/A'}
+                        </div>
+                      </div>
+                      {/* USDT Peg */}
+                      <div className="space-y-1 cursor-help" title="Tether peg - below $0.985 = stablecoin/banking crisis, crypto contagion risk.">
+                        <span className="hud-label">USDT</span>
+                        <div className={clsx(
+                          'font-mono text-lg',
+                          crisisState.indicators.stablecoinPeg !== null && crisisState.indicators.stablecoinPeg < (config?.crisis_stablecoin_depeg_threshold || 0.985)
+                            ? 'text-hud-error'
+                            : 'text-hud-success'
+                        )}>
+                          {crisisState.indicators.stablecoinPeg !== null ? `$${crisisState.indicators.stablecoinPeg.toFixed(3)}` : 'N/A'}
+                        </div>
+                      </div>
+                      {/* Gold/Silver Ratio */}
+                      <div className="space-y-1 cursor-help" title="Gold/Silver Ratio - low (<60) = silver squeeze, monetary system distrust, inflation fears.">
+                        <span className="hud-label">G/S</span>
+                        <div className={clsx(
+                          'font-mono text-lg',
+                          crisisState.indicators.goldSilverRatio !== null && crisisState.indicators.goldSilverRatio < (config?.crisis_gold_silver_ratio_low || 60)
+                            ? 'text-hud-warning'
+                            : 'text-hud-success'
+                        )}>
+                          {crisisState.indicators.goldSilverRatio?.toFixed(1) ?? 'N/A'}
+                        </div>
+                      </div>
+                      {/* Silver 7D */}
+                      <div className="space-y-1 cursor-help" title="Silver weekly momentum - rapid surge = flight to hard assets, monetary crisis expectations.">
+                        <span className="hud-label">SLV 7D</span>
+                        <div className={clsx(
+                          'font-mono text-lg',
+                          crisisState.indicators.silverWeeklyChange !== null && crisisState.indicators.silverWeeklyChange >= (config?.crisis_silver_weekly_critical || 20)
+                            ? 'text-hud-error'
+                            : crisisState.indicators.silverWeeklyChange !== null && crisisState.indicators.silverWeeklyChange >= (config?.crisis_silver_weekly_warning || 10)
+                            ? 'text-hud-warning'
+                            : 'text-hud-success'
+                        )}>
+                          {crisisState.indicators.silverWeeklyChange !== null ? `${crisisState.indicators.silverWeeklyChange >= 0 ? '+' : ''}${crisisState.indicators.silverWeeklyChange.toFixed(1)}%` : 'N/A'}
+                        </div>
+                      </div>
+                      {/* Stocks Above 200MA */}
+                      <div className="space-y-1 cursor-help" title="Market Breadth - % of S&P 500 above 200-day MA. Low = broad market weakness, not just a few stocks.">
+                        <span className="hud-label">200MA</span>
+                        <div className={clsx(
+                          'font-mono text-lg',
+                          crisisState.indicators.stocksAbove200MA !== null && crisisState.indicators.stocksAbove200MA < (config?.crisis_stocks_above_200ma_critical || 20)
+                            ? 'text-hud-error'
+                            : crisisState.indicators.stocksAbove200MA !== null && crisisState.indicators.stocksAbove200MA < (config?.crisis_stocks_above_200ma_warning || 30)
+                            ? 'text-hud-warning'
+                            : 'text-hud-success'
+                        )}>
+                          {crisisState.indicators.stocksAbove200MA?.toFixed(0) ?? 'N/A'}%
+                        </div>
+                      </div>
+                      {/* KRE Price */}
+                      <div className="space-y-1 cursor-help" title="Regional Bank ETF price - tracks small/mid bank health. First to show banking stress.">
+                        <span className="hud-label">KRE</span>
+                        <div className="font-mono text-lg text-hud-text">
+                          {crisisState.indicators.kre ? `$${crisisState.indicators.kre.toFixed(1)}` : 'N/A'}
+                        </div>
+                      </div>
+                      {/* Trigger Count */}
+                      <div className="space-y-1 cursor-help" title="Active crisis triggers - number of indicators currently breaching warning/critical thresholds.">
+                        <span className="hud-label">ALERTS</span>
+                        <div className={clsx(
+                          'font-mono text-lg',
+                          crisisState.triggeredIndicators.length >= 3 ? 'text-hud-error' :
+                          crisisState.triggeredIndicators.length >= 1 ? 'text-hud-warning' : 'text-hud-success'
+                        )}>
+                          {crisisState.triggeredIndicators.length}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Triggered Indicators */}
+                    {crisisState.triggeredIndicators.length > 0 && (
+                      <div className="mt-2 p-2 bg-hud-error/10 border border-hud-error/30 rounded">
+                        <span className="hud-label text-hud-error">TRIGGERED:</span>
+                        <div className="mt-1 text-xs text-hud-error space-y-0.5">
+                          {crisisState.triggeredIndicators.map((trigger, idx) => (
+                            <div key={idx}>⚠ {trigger}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-hud-text-dim text-sm">Crisis monitoring initializing...</div>
+                )}
+              </Panel>
+            </div>
+          )}
+
           {/* Row 2: Portfolio Performance Chart */}
           <div className="col-span-4 md:col-span-8 lg:col-span-8">
             <Panel title="PORTFOLIO PERFORMANCE" titleRight="24H" className="h-[320px]">
-              {portfolioChartData.length > 1 ? (
+              {portfolioChartData.length > 1 || dexChartData.length > 1 ? (
                 <div className="h-full w-full">
                   <LineChart
                     series={[
-                      { label: 'Stocks', data: portfolioChartData, variant: totalPl >= 0 ? 'green' : 'red' },
-                      ...(dexChartData.length > 0 ? [{ label: 'DEX (Paper)', data: dexChartData, variant: 'yellow' as const }] : [])
+                      ...(portfolioChartData.length > 0 ? [{ label: 'Stocks', data: portfolioChartData, variant: totalPl >= 0 ? 'green' as const : 'red' as const }] : []),
+                      ...(dexChartData.length > 0 ? [{ label: 'DEX', data: dexChartData, variant: 'yellow' as const }] : [])
                     ]}
                     labels={portfolioChartLabels}
                     showArea={false}
                     showGrid={true}
                     showDots={false}
-                    formatValue={(v) => `$${(v / 1000).toFixed(1)}k`}
+                    formatValue={(v) => v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v.toFixed(0)}`}
                   />
                 </div>
               ) : (
@@ -670,11 +1079,33 @@ export default function App() {
                   </div>
                 )}
 
+                {/* DEX Controls */}
+                <div className="flex gap-2 mb-4">
+                  <button
+                    onClick={handleDexClearCooldowns}
+                    className="px-3 py-1 text-xs bg-hud-line/30 hover:bg-hud-line/50 border border-hud-line/50 rounded text-hud-text-dim hover:text-hud-text transition-colors"
+                  >
+                    Clear Cooldowns
+                  </button>
+                  <button
+                    onClick={handleDexClearBreaker}
+                    className="px-3 py-1 text-xs bg-hud-line/30 hover:bg-hud-line/50 border border-hud-line/50 rounded text-hud-text-dim hover:text-hud-text transition-colors"
+                  >
+                    Clear Circuit Breaker
+                  </button>
+                  <button
+                    onClick={handleDexReset}
+                    className="px-3 py-1 text-xs bg-hud-error/20 hover:bg-hud-error/30 border border-hud-error/50 rounded text-hud-error/70 hover:text-hud-error transition-colors"
+                  >
+                    Reset DEX
+                  </button>
+                </div>
+
                 {/* Signals Table */}
                 <div className="hud-label text-xs mb-2">MOMENTUM SIGNALS</div>
-                <div className="overflow-x-auto">
+                <div className={clsx("overflow-x-auto", (status?.dexSignals?.length || 0) > 10 && "max-h-[400px] overflow-y-auto")}>
                   <table className="w-full">
-                    <thead>
+                    <thead className="sticky top-0 bg-hud-bg">
                       <tr className="border-b border-hud-line/50">
                         <th className="hud-label text-left py-2 px-2">Token</th>
                         <th className="hud-label text-right py-2 px-2">Price</th>
@@ -687,7 +1118,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {status?.dexSignals?.slice(0, 5).map((sig: DexMomentumSignal) => (
+                      {status?.dexSignals?.map((sig: DexMomentumSignal) => (
                         <motion.tr
                           key={sig.tokenAddress}
                           initial={{ opacity: 0 }}
@@ -698,7 +1129,16 @@ export default function App() {
                           <td className="hud-value-sm py-2 px-2">
                             <span className="text-hud-warning mr-1">◎</span>
                             <span className="font-semibold">{sig.symbol}</span>
-                            <span className="text-hud-text-dim text-xs ml-1 hidden md:inline">{sig.name?.slice(0, 12)}</span>
+                            {sig.tier && (
+                              <span className={clsx(
+                                'text-[8px] ml-1 px-1 rounded uppercase',
+                                sig.tier === 'microspray' && 'bg-hud-purple/30 text-hud-purple',
+                                sig.tier === 'breakout' && 'bg-hud-error/30 text-hud-error',
+                                sig.tier === 'lottery' && 'bg-hud-success/30 text-hud-success',
+                                sig.tier === 'early' && 'bg-hud-cyan/30 text-hud-cyan',
+                                sig.tier === 'established' && 'bg-hud-primary/30 text-hud-primary',
+                              )}>{sig.tier}</span>
+                            )}
                           </td>
                           <td className="hud-value-sm text-right py-2 px-2 text-hud-text-dim">
                             ${sig.priceUsd < 0.01 ? sig.priceUsd.toFixed(6) : sig.priceUsd.toFixed(4)}
@@ -740,6 +1180,97 @@ export default function App() {
                 <div className="text-xs text-hud-text-dim mt-2 text-center">
                   Click row to view on DexScreener
                 </div>
+
+                {/* Trade History */}
+                {(status?.dexPaperTrading?.recentTrades?.length || 0) > 0 && (
+                  <div className="mt-6 pt-4 border-t border-hud-line">
+                    <div className="hud-label text-xs mb-2">
+                      TRADE HISTORY
+                      <span className="text-hud-text-dim ml-2">
+                        ({status?.dexPaperTrading?.winningTrades || 0}W / {status?.dexPaperTrading?.losingTrades || 0}L)
+                      </span>
+                    </div>
+                    <div className={clsx("overflow-x-auto", (status?.dexPaperTrading?.recentTrades?.length || 0) > 8 && "max-h-[300px] overflow-y-auto")}>
+                      <table className="w-full">
+                        <thead className="sticky top-0 bg-hud-bg">
+                          <tr className="border-b border-hud-line/50">
+                            <th className="hud-label text-left py-2 px-2">Token</th>
+                            <th className="hud-label text-right py-2 px-2">P&L</th>
+                            <th className="hud-label text-right py-2 px-2">Exit Reason</th>
+                            <th className="hud-label text-right py-2 px-2">Hold Time</th>
+                            <th className="hud-label text-right py-2 px-2">Time</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {status?.dexPaperTrading?.recentTrades?.slice().reverse().map((trade: {
+                            symbol: string;
+                            tokenAddress: string;
+                            entryPrice: number;
+                            exitPrice: number;
+                            entrySol: number;
+                            entryTime: number;
+                            exitTime: number;
+                            pnlPct: number;
+                            pnlSol: number;
+                            exitReason: string;
+                          }, idx: number) => {
+                            const holdTimeHours = (trade.exitTime - trade.entryTime) / (1000 * 60 * 60);
+                            const exitTimeAgo = (Date.now() - trade.exitTime) / (1000 * 60);
+                            const exitReasonLabel = {
+                              'take_profit': '🎯 Take Profit',
+                              'stop_loss': '🛑 Stop Loss',
+                              'lost_momentum': '📉 Lost Momentum',
+                              'trailing_stop': '📊 Trailing Stop',
+                              'manual': '✋ Manual',
+                            }[trade.exitReason] || trade.exitReason;
+                            const exitReasonColor = {
+                              'take_profit': 'text-hud-success',
+                              'stop_loss': 'text-hud-error',
+                              'lost_momentum': 'text-hud-warning',
+                              'trailing_stop': 'text-hud-cyan',
+                              'manual': 'text-hud-text-dim',
+                            }[trade.exitReason] || 'text-hud-text-dim';
+
+                            return (
+                              <tr
+                                key={`${trade.tokenAddress}-${trade.exitTime}-${idx}`}
+                                className="border-b border-hud-line/20 hover:bg-hud-line/10 cursor-pointer"
+                                onClick={() => window.open(`https://dexscreener.com/solana/${trade.tokenAddress}`, '_blank')}
+                                title={`Entry: $${trade.entryPrice.toFixed(8)} → Exit: $${trade.exitPrice.toFixed(8)}\nSize: ${trade.entrySol.toFixed(4)} SOL\nP&L: ${trade.pnlSol >= 0 ? '+' : ''}${trade.pnlSol.toFixed(4)} SOL`}
+                              >
+                                <td className="hud-value-sm py-2 px-2">
+                                  <span className="text-hud-warning mr-1">◎</span>
+                                  <span className="font-semibold">{trade.symbol}</span>
+                                </td>
+                                <td className={clsx(
+                                  'hud-value-sm text-right py-2 px-2 font-semibold',
+                                  trade.pnlPct >= 0 ? 'text-hud-success' : 'text-hud-error'
+                                )}>
+                                  {trade.pnlPct >= 0 ? '+' : ''}{trade.pnlPct.toFixed(1)}%
+                                  <span className="text-[10px] text-hud-text-dim ml-1">
+                                    ({trade.pnlSol >= 0 ? '+' : ''}{trade.pnlSol.toFixed(3)})
+                                  </span>
+                                </td>
+                                <td className={clsx('hud-value-sm text-right py-2 px-2', exitReasonColor)}>
+                                  {exitReasonLabel}
+                                </td>
+                                <td className="hud-value-sm text-right py-2 px-2 text-hud-text-dim">
+                                  {holdTimeHours < 1 ? `${(holdTimeHours * 60).toFixed(0)}m` : `${holdTimeHours.toFixed(1)}h`}
+                                </td>
+                                <td className="hud-value-sm text-right py-2 px-2 text-hud-text-dim">
+                                  {exitTimeAgo < 60 ? `${exitTimeAgo.toFixed(0)}m ago` : `${(exitTimeAgo / 60).toFixed(1)}h ago`}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="text-xs text-hud-text-dim mt-2 text-center">
+                      Click row to view token on DexScreener • Hover for entry/exit details
+                    </div>
+                  </div>
+                )}
               </Panel>
             </div>
           )}

@@ -15,7 +15,21 @@
       "Bash(__NEW_LINE_9f9f261420bc319e__ echo -e \"\\\\n2. Search for ''sol'':\")",
       "Bash(# Check auth logs from overnight echo \"\"=== Authentication requests \\(last 24h\\) ===\"\" journalctl -u polkit --since \"\"yesterday\"\")",
       "Bash(grep:*)",
-      "Bash(# Check what was happening around that time echo \"\"=== System activity around 08:22 ===\"\" journalctl --since \"\"2026-02-04 08:20\"\" --until \"\"2026-02-04 08:25\"\" | grep -v \"\"polkitd\\\\|wrangler\\\\|node\"\" | head -30 echo -e \"\"\\\\n=== Any cron jobs that ran overnight? ===\"\" grep -r \"\"CRON\"\" /var/log/syslog* | grep \"\"Feb 4\"\" | tail -10 echo -e \"\"\\\\n=== Scheduled tasks \\(anacron/at\\) ===\"\" cat /var/spool/anacron/* && head -20 ~/.local/share/recently-used.xbel)"
+      "Bash(# Check what was happening around that time echo \"\"=== System activity around 08:22 ===\"\" journalctl --since \"\"2026-02-04 08:20\"\" --until \"\"2026-02-04 08:25\"\" | grep -v \"\"polkitd\\\\|wrangler\\\\|node\"\" | head -30 echo -e \"\"\\\\n=== Any cron jobs that ran overnight? ===\"\" grep -r \"\"CRON\"\" /var/log/syslog* | grep \"\"Feb 4\"\" | tail -10 echo -e \"\"\\\\n=== Scheduled tasks \\(anacron/at\\) ===\"\" cat /var/spool/anacron/* && head -20 ~/.local/share/recently-used.xbel)",
+      "Bash(npx tsc:*)",
+      "Bash(pkill:*)",
+      "Bash(TOKEN=\"CUy+bF5UVeei0O4aBQ5t0DIeHPcCER2Z5K17FGjbMUzCk9YXJI7w4KuRz9XneTmi\" curl -s -m 30 -H \"Authorization: Bearer $TOKEN\" \"http://localhost:8787/agent/logs?limit=100\")",
+      "Bash(sqlite3:*)",
+      "Bash(TOKEN=\"CUy+bF5UVeei0O4aBQ5t0DIeHPcCER2Z5K17FGjbMUzCk9YXJI7w4KuRz9XneTmi\")",
+      "WebFetch(domain:dexscreener.com)",
+      "Bash(__NEW_LINE_daa6d0e88c7c39a8__ echo -e \"\\\\n\\\\nTesting /token-pairs/new...\")",
+      "Bash(__NEW_LINE_d311f753708590cd__ echo -e \"\\\\n\\\\nTesting /pairs/gainers...\")",
+      "WebFetch(domain:www.npmjs.com)",
+      "Bash(# Try the search endpoint with different sort parameters echo \"\"Testing search with Solana filter...\"\" curl -s \"\"https://api.dexscreener.com/latest/dex/search?q=solana\"\" 2>&1 | jq ''.pairs[:2] | .[].pairCreatedAt'')",
+      "Bash(TOKEN=\"CUy+bF5UVeei0O4aBQ5t0DIeHPcCER2Z5K17FGjbMUzCk9YXJI7w4KuRz9XneTmi\" curl -s -m 30 -H \"Authorization: Bearer $TOKEN\" \"http://localhost:8787/agent/logs?limit=20\")",
+      "Bash(pgrep:*)",
+      "Bash(lsof:*)",
+      "Bash(__NEW_LINE_7c84d5f56ca9d907__ echo \"\")"
     ]
   }
 }

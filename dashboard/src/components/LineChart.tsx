@@ -97,7 +97,9 @@ export function LineChart({
 
   const handleMouseLeave = () => setHoverIndex(null)
 
-  const hoverValue = hoverIndex !== null ? series[0]?.data[hoverIndex] : null
+  const hoverValues = hoverIndex !== null
+    ? series.map(s => ({ label: s.label, value: s.data[hoverIndex], variant: s.variant })).filter(v => v.value !== undefined)
+    : []
   const hoverLabel = hoverIndex !== null && labels ? labels[hoverIndex] : null
 
   return (
@@ -246,7 +248,7 @@ export function LineChart({
         )
       })}
 
-      {hoverIndex !== null && hoverValue !== null && (
+      {hoverIndex !== null && hoverValues.length > 0 && (
         <g>
           <line
             x1={getX(hoverIndex)}
@@ -257,33 +259,53 @@ export function LineChart({
             strokeWidth={1}
             opacity={0.6}
           />
-          <circle
-            cx={getX(hoverIndex)}
-            cy={getY(hoverValue)}
-            r={4}
-            fill="var(--color-hud-bg)"
-            stroke={variantColors[series[0]?.variant ?? variant].stroke}
-            strokeWidth={2}
-          />
-          <g transform={`translate(${Math.min(getX(hoverIndex) + 8, viewBoxWidth - 90)}, ${Math.max(getY(hoverValue) - 30, padding.top)})`}>
+          {/* Dots for each series at hover point */}
+          {hoverValues.map((hv, i) => (
+            <circle
+              key={i}
+              cx={getX(hoverIndex)}
+              cy={getY(hv.value)}
+              r={4}
+              fill="var(--color-hud-bg)"
+              stroke={variantColors[hv.variant ?? variant].stroke}
+              strokeWidth={2}
+            />
+          ))}
+          {/* Tooltip box */}
+          <g transform={`translate(${Math.min(getX(hoverIndex) + 8, viewBoxWidth - 100)}, ${Math.max(padding.top, 10)})`}>
             <rect
               x={0}
               y={0}
-              width={80}
-              height={36}
+              width={92}
+              height={16 + hoverValues.length * 14 + (hoverLabel ? 14 : 0)}
               fill="var(--color-hud-bg)"
               stroke="var(--color-hud-line)"
               strokeWidth={1}
               rx={2}
             />
-            <text x={8} y={14} fill="var(--color-hud-text)" fontSize={10} fontWeight="500">
-              {formatLabel(hoverValue)}
-            </text>
             {hoverLabel && (
-              <text x={8} y={28} fill="var(--color-hud-text-dim)" fontSize={9}>
+              <text x={8} y={12} fill="var(--color-hud-text-dim)" fontSize={9}>
                 {hoverLabel}
               </text>
             )}
+            {hoverValues.map((hv, i) => (
+              <g key={i}>
+                <circle
+                  cx={8}
+                  cy={(hoverLabel ? 24 : 12) + i * 14 - 3}
+                  r={3}
+                  fill={variantColors[hv.variant ?? variant].stroke}
+                />
+                <text
+                  x={16}
+                  y={(hoverLabel ? 24 : 12) + i * 14}
+                  fill="var(--color-hud-text)"
+                  fontSize={9}
+                >
+                  {hv.label}: {formatLabel(hv.value)}
+                </text>
+              </g>
+            ))}
           </g>
         </g>
       )}
