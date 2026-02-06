@@ -6,6 +6,32 @@
 
 ---
 
+## 2026-02-05: Stop Loss Improvements
+
+### Problem
+- 30% stop loss was too tight for memecoin volatility (30-50% intraday swings are normal)
+- Positions could hit +200% then crash back to -30%, giving back all gains
+
+### Changes
+
+#### 1. Widened Stop Loss to 35%
+- **Previous**: 30% stop loss
+- **New**: 35% stop loss
+- **Rationale**: Memecoins need more room to breathe during consolidation
+
+#### 2. Added Breakeven Stop
+- Once trailing stop activates (position hit +50%), a breakeven floor is set
+- If price crashes back to entry + 2%, exit with "breakeven_stop"
+- **Prevents**: Positions that mooned then crashed from going negative
+- **Example**: Entry $0.00001 → peaks at $0.00006 (+500%) → crashes to $0.0000102 → exits at +2% instead of holding to -30%
+
+### Files Modified
+- `src/durable-objects/harness/config.ts` - Stop loss 30% → 35%
+- `src/durable-objects/harness/dex-trading.ts` - Added breakeven stop logic
+- `src/durable-objects/harness/types.ts` - Added `dex_breakeven_buffer_pct` config
+
+---
+
 ## 2026-02-05: Architecture Refactor
 
 ### Monolith → Modules
@@ -114,14 +140,12 @@ if (peakGainPct >= activationPct && peakWasMeaningful) {
 
 Added `runner_mode_active` log to track when positions are in runner mode.
 
-#### 3. Tier-Specific Stop Losses
-**File:** `src/durable-objects/harness/dex-trading.ts`
+#### ~~3. Tier-Specific Stop Losses~~ (REVERTED)
+**Status:** REVERTED on 2026-02-05
 
-**Rationale:** Different tiers have different risk profiles.
+**Original change:** Tighter stops for high-risk tiers (20% lottery, 25% early).
 
-- **Lottery/Microspray/Breakout:** 20% stop loss (was 30%)
-- **Early:** 25% stop loss
-- **Established:** 30% stop loss (unchanged)
+**Why reverted:** Memecoins have 20-30% intraday swings as normal volatility. The tighter stops were triggering during consolidation before the upward move we're trying to capture. Back to uniform 30% stop loss for all tiers.
 
 #### 4. Higher Momentum Score Floor
 **File:** `src/durable-objects/harness/dex-trading.ts`
@@ -142,6 +166,9 @@ Added `runner_mode_active` log to track when positions are in runner mode.
 
 #### Score Penalty for Extreme 24h Gains
 **Rejected because:** Big gains ARE the momentum signal we want. Don't penalize the exact thing we're trying to buy.
+
+#### Tier-Specific Tighter Stop Losses (20%/25%)
+**Rejected because:** Memecoins have 20-30% intraday swings as normal volatility. Tighter stops were triggering during consolidation before the move we're trying to catch. Keep uniform 30% stop loss.
 
 ---
 
@@ -183,12 +210,12 @@ curl -s -H "Authorization: Bearer YOUR_TOKEN" http://localhost:8787/agent/status
    - Trailing stop safety check
    - Removed immediate take_profit
    - Added runner_mode_active logging
-   - Tier-specific stop losses
+   - ~~Tier-specific stop losses~~ (REVERTED - too tight for memecoin volatility)
    - Momentum floor 50 → 60
 
 2. `src/durable-objects/harness/types.ts`
-   - Added `dex_lottery_stop_loss_pct` config option
-   - Added `dex_early_stop_loss_pct` config option
+   - Added `dex_lottery_stop_loss_pct` config option (unused - reverted)
+   - Added `dex_early_stop_loss_pct` config option (unused - reverted)
 
 3. `src/providers/birdeye.ts`
    - Fixed rate limiting (module-level timestamp)

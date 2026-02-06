@@ -53,7 +53,16 @@ export async function runDexTrading(ctx: HarnessContext): Promise<void> {
     const signal = ctx.state.dexSignals.find(s => s.tokenAddress === tokenAddress);
 
     // Calculate P&L based on current price vs entry
-    const currentPrice = signal?.priceUsd || position.entryPrice;
+    // Use signal price if available, else last known price, else entry price (worst case)
+    let currentPrice: number;
+    if (signal?.priceUsd) {
+      currentPrice = signal.priceUsd;
+      position.lastKnownPrice = currentPrice; // Cache for when signal goes missing
+    } else if (position.lastKnownPrice) {
+      currentPrice = position.lastKnownPrice; // Use cached price when signal missing
+    } else {
+      currentPrice = position.entryPrice; // Fallback only if we never had a price
+    }
     const plPct = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
 
     // Update peak price
@@ -62,7 +71,7 @@ export async function runDexTrading(ctx: HarnessContext): Promise<void> {
     }
 
     let shouldExit = false;
-    let exitReason: "take_profit" | "stop_loss" | "lost_momentum" | "trailing_stop" = "take_profit";
+    let exitReason: "take_profit" | "stop_loss" | "lost_momentum" | "trailing_stop" | "breakeven_stop" | "scaling_trailing" = "take_profit";
 
     // Task #13: Check liquidity safety before any exit
     // If liquidity is too low relative to position size, we might get stuck
@@ -74,6 +83,7 @@ export async function runDexTrading(ctx: HarnessContext): Promise<void> {
     // Lost momentum - token fell off radar
     // KEY FIX: If position is GREEN, don't exit! Let trailing stop handle it.
     // Only exit on lost momentum if we're RED and it's been missing for a while.
+    // NOTE: Signal should never be missing for open positions - gatherers.ts preserves them
     if (!signal) {
       // Increment missed scan counter
       position.missedScans = (position.missedScans || 0) + 1;
@@ -147,6 +157,83 @@ export async function runDexTrading(ctx: HarnessContext): Promise<void> {
           reason: "Momentum decayed but position is GREEN - letting trailing stop manage",
         });
       }
+      // Scaling Trailing Stop - earlier activation with proportional protection
+      // Activates at +10%, allows drawdown from breakeven up to 45% max
+      else if (ctx.state.config.dex_scaling_trailing_enabled) {
+        const scalingActivation = ctx.state.config.dex_scaling_trailing_activation_pct ?? 10;
+        const maxDrawdownPct = ctx.state.config.dex_scaling_max_drawdown_pct ?? 45;
+        const peakGainPct = ((position.peakPrice - position.entryPrice) / position.entryPrice) * 100;
+        const peakWasMeaningful = position.peakPrice > position.entryPrice * 1.05;
+
+        if (peakGainPct >= scalingActivation && peakWasMeaningful) {
+          // Drawdown allowed: scales from peakGain% (at activation) up to max
+          // At +15%: can drop 15% (to breakeven)
+          // At +100%: can drop 45% (to +55%)
+          // At +200%: can drop 45% (to +155%)
+          const drawdownAllowed = Math.min(peakGainPct, maxDrawdownPct);
+          const profitFloorPct = peakGainPct - drawdownAllowed;
+          const profitFloorPrice = position.entryPrice * (1 + profitFloorPct / 100);
+
+          if (currentPrice <= profitFloorPrice) {
+            // Position reached activation (+10%) and has now fallen to/below the floor
+            // EXIT IMMEDIATELY - the whole point is to protect gains at breakeven
+            // Don't wait for recovery - memecoins rarely recover once they dump
+            shouldExit = true;
+            exitReason = "scaling_trailing";
+
+            ctx.log("DexMomentum", "scaling_stop_triggered", {
+              symbol: position.symbol,
+              peakGainPct: peakGainPct.toFixed(1),
+              drawdownAllowed: drawdownAllowed.toFixed(1),
+              profitFloorPct: profitFloorPct.toFixed(1),
+              currentPnl: plPct.toFixed(1),
+              note: plPct < profitFloorPct ? "Crashed past floor - exiting now to limit damage" : "Hit floor",
+            });
+          }
+        }
+
+        // FIX 1: Stop loss fallback when scaling trailing not activated
+        // CRITICAL: Without this, positions can fall -90%+ because stop loss code is
+        // in the next else-if block which is never reached when scaling_trailing is enabled
+        if (!shouldExit) {
+          const tierStopLossPct = (() => {
+            switch (position.tier) {
+              case 'lottery':
+                return ctx.state.config.dex_lottery_stop_loss_pct ?? 35;
+              case 'microspray':
+                return ctx.state.config.dex_microspray_stop_loss_pct ?? 35;
+              case 'breakout':
+                return ctx.state.config.dex_breakout_stop_loss_pct ?? 35;
+              case 'early':
+                return ctx.state.config.dex_early_stop_loss_pct ?? 35;
+              default: // established
+                return ctx.state.config.dex_stop_loss_pct ?? 35;
+            }
+          })();
+
+          if (plPct <= -tierStopLossPct) {
+            // Stop loss always triggers (even with low liquidity - better to take high slippage than bigger loss)
+            if (!canSafelyExit) {
+              ctx.log("DexMomentum", "stop_loss_low_liquidity_warning", {
+                symbol: position.symbol,
+                plPct: plPct.toFixed(2),
+                positionValueUsd: positionValueUsd.toFixed(2),
+                liquidity: currentLiquidity.toFixed(2),
+                warning: "Exiting at stop loss with potentially high slippage",
+              });
+            }
+            shouldExit = true;
+            exitReason = "stop_loss";
+            ctx.log("DexMomentum", "stop_loss_triggered", {
+              symbol: position.symbol,
+              plPct: plPct.toFixed(2) + "%",
+              stopLossThreshold: "-" + tierStopLossPct + "%",
+              tier: position.tier,
+              context: "scaling_trailing_fallback",
+            });
+          }
+        }
+      }
       // Trailing stop loss (#9) - activates after position is up by activation_pct
       // FIX: Removed immediate take_profit - let winners run via trailing stop instead
       // When position hits take_profit_pct, trailing stop activates and tracks the peak
@@ -194,6 +281,23 @@ export async function runDexTrading(ctx: HarnessContext): Promise<void> {
             shouldExit = true;
             exitReason = "trailing_stop";
           }
+
+          // Breakeven stop: Once trailing stop is active, never go negative
+          // If position reached activation threshold but crashed back near entry, exit at breakeven
+          const breakevenBuffer = ctx.state.config.dex_breakeven_buffer_pct ?? 2; // 2% buffer for fees
+          const breakevenPrice = position.entryPrice * (1 + breakevenBuffer / 100);
+          if (!shouldExit && currentPrice <= breakevenPrice) {
+            ctx.log("DexMomentum", "breakeven_stop_triggered", {
+              symbol: position.symbol,
+              entryPrice: position.entryPrice.toFixed(8),
+              breakevenPrice: breakevenPrice.toFixed(8),
+              currentPrice: currentPrice.toFixed(8),
+              peakPnl: peakGainPct.toFixed(1) + "%",
+              reason: "Position reached activation but crashed back - exiting at breakeven",
+            });
+            shouldExit = true;
+            exitReason = "breakeven_stop";
+          }
         }
         // FIX: If peak wasn't meaningful but peakGainPct looks high, it's a bug - use fixed stop loss
         else if (peakGainPct >= activationPct && !peakWasMeaningful) {
@@ -206,9 +310,21 @@ export async function runDexTrading(ctx: HarnessContext): Promise<void> {
           // Fall through to fixed stop loss check below
         }
 
-        // Use uniform stop loss for all tiers - memecoins need room to breathe
-        // Tighter stops (20-25%) were getting triggered during normal volatility
-        const tierStopLossPct = ctx.state.config.dex_stop_loss_pct; // Default: 30%
+        // Tier-specific stop loss (configurable per tier from UI)
+        const tierStopLossPct = (() => {
+          switch (position.tier) {
+            case 'lottery':
+              return ctx.state.config.dex_lottery_stop_loss_pct ?? 35;
+            case 'microspray':
+              return ctx.state.config.dex_microspray_stop_loss_pct ?? 35;
+            case 'breakout':
+              return ctx.state.config.dex_breakout_stop_loss_pct ?? 35;
+            case 'early':
+              return ctx.state.config.dex_early_stop_loss_pct ?? 35;
+            default: // established
+              return ctx.state.config.dex_stop_loss_pct;
+          }
+        })();
 
         // Fixed stop loss if trailing stop not yet activated
         if (!shouldExit && plPct <= -tierStopLossPct) {
@@ -227,26 +343,43 @@ export async function runDexTrading(ctx: HarnessContext): Promise<void> {
         }
       }
       // Fixed stop loss (when trailing stop is disabled)
-      else if (plPct <= -ctx.state.config.dex_stop_loss_pct) {
-        // Stop loss always triggers (even with low liquidity)
-        if (!canSafelyExit) {
-          ctx.log("DexMomentum", "stop_loss_low_liquidity_warning", {
-            symbol: position.symbol,
-            plPct: plPct.toFixed(2),
-            positionValueUsd: positionValueUsd.toFixed(2),
-            liquidity: currentLiquidity.toFixed(2),
-            warning: "Exiting at stop loss with potentially high slippage",
-          });
+      else {
+        // Tier-specific stop loss (configurable per tier from UI)
+        const tierStopLossPct = (() => {
+          switch (position.tier) {
+            case 'lottery':
+              return ctx.state.config.dex_lottery_stop_loss_pct ?? 35;
+            case 'microspray':
+              return ctx.state.config.dex_microspray_stop_loss_pct ?? 35;
+            case 'breakout':
+              return ctx.state.config.dex_breakout_stop_loss_pct ?? 35;
+            case 'early':
+              return ctx.state.config.dex_early_stop_loss_pct ?? 35;
+            default: // established
+              return ctx.state.config.dex_stop_loss_pct;
+          }
+        })();
+        if (plPct <= -tierStopLossPct) {
+          // Stop loss always triggers (even with low liquidity)
+          if (!canSafelyExit) {
+            ctx.log("DexMomentum", "stop_loss_low_liquidity_warning", {
+              symbol: position.symbol,
+              plPct: plPct.toFixed(2),
+              positionValueUsd: positionValueUsd.toFixed(2),
+              liquidity: currentLiquidity.toFixed(2),
+              warning: "Exiting at stop loss with potentially high slippage",
+            });
+          }
+          shouldExit = true;
+          exitReason = "stop_loss";
         }
-        shouldExit = true;
-        exitReason = "stop_loss";
       }
     } // End of else block (signal found)
 
     if (shouldExit) {
-      // Record stop loss cooldown (#8) for stop_loss and trailing_stop exits
+      // Record stop loss cooldown (#8) for stop_loss, trailing_stop, and scaling_trailing exits
       // Store exit price for price-based re-entry logic (use currentPrice before slippage)
-      if (exitReason === "stop_loss" || exitReason === "trailing_stop") {
+      if (exitReason === "stop_loss" || exitReason === "trailing_stop" || exitReason === "scaling_trailing") {
         if (!ctx.state.dexStopLossCooldowns) ctx.state.dexStopLossCooldowns = {};
         const cooldownHours = ctx.state.config.dex_stop_loss_cooldown_hours ?? 2;
         ctx.state.dexStopLossCooldowns[tokenAddress] = {
@@ -457,72 +590,127 @@ export async function runDexTrading(ctx: HarnessContext): Promise<void> {
     }
   }
 
-  const candidates = ctx.state.dexSignals
+  // FIX 2: Create Birdeye provider for re-entry chart analysis
+  // This checks for dead cat bounces before allowing price-based re-entry
+  const reentryBirdeye = ctx.state.config.dex_chart_analysis_enabled && ctx.env.BIRDEYE_API_KEY
+    ? createBirdeyeProvider(ctx.env.BIRDEYE_API_KEY)
+    : null;
+
+  // Helper function to check if re-entry should be blocked due to dead cat bounce
+  const isDeadCatBounce = async (s: typeof ctx.state.dexSignals[0]): Promise<boolean> => {
+    if (!reentryBirdeye) return false; // No Birdeye = allow re-entry
+    try {
+      const analysis = await reentryBirdeye.analyzeChart(s.tokenAddress, s.ageHours);
+      if (analysis && analysis.recommendation === 'avoid') {
+        ctx.log("DexMomentum", "reentry_blocked_dead_cat", {
+          symbol: s.symbol,
+          chartScore: analysis.entryScore,
+          recommendation: analysis.recommendation,
+          trend: analysis.indicators.trend,
+          volumeProfile: analysis.indicators.volumeProfile,
+          patterns: analysis.patterns.map(p => p.pattern).join(", ") || "none",
+          reason: "Chart analysis indicates poor entry point - likely dead cat bounce",
+        });
+        return true;
+      }
+      return false;
+    } catch (e) {
+      // Chart analysis failed - allow re-entry (don't block on API errors)
+      ctx.log("DexMomentum", "reentry_chart_check_failed", {
+        symbol: s.symbol,
+        error: String(e),
+        action: "Allowing re-entry despite chart check failure",
+      });
+      return false;
+    }
+  };
+
+  // Build candidates list with sync filters first, then apply async chart check
+  const syncFilteredCandidates = ctx.state.dexSignals
     .filter(s => !heldTokens.has(s.tokenAddress))
     .filter(s => s.momentumScore >= 60) // Minimum momentum score threshold (raised from 50 for quality)
-    // Check stop loss cooldown (#8) - price-based re-entry logic
-    .filter(s => {
-      if (!ctx.state.dexStopLossCooldowns) return true;
-      const cooldown = ctx.state.dexStopLossCooldowns[s.tokenAddress];
-      if (!cooldown) return true;
+    .slice(0, 10); // Pre-limit before async checks
 
-      // Handle legacy format (just a number timestamp)
-      if (typeof cooldown === 'number') {
-        return Date.now() >= cooldown;
+  // Apply cooldown checks with async dead cat bounce detection
+  const candidatePromises = syncFilteredCandidates.map(async (s) => {
+    if (!ctx.state.dexStopLossCooldowns) return s;
+    const cooldown = ctx.state.dexStopLossCooldowns[s.tokenAddress];
+    if (!cooldown) return s;
+
+    // Handle legacy format (just a number timestamp)
+    if (typeof cooldown === 'number') {
+      return Date.now() >= cooldown ? s : null;
+    }
+
+    const recoveryPct = ctx.state.config.dex_reentry_recovery_pct ?? 15;
+    const minMomentum = ctx.state.config.dex_reentry_min_momentum ?? 70;
+
+    // Check if price has recovered X% above exit price
+    const priceRecoveryThreshold = cooldown.exitPrice * (1 + recoveryPct / 100);
+    if (s.priceUsd >= priceRecoveryThreshold) {
+      // FIX 2: Before allowing re-entry on price recovery, verify with chart analysis
+      // This prevents buying dead cat bounces
+      const isDeadCat = await isDeadCatBounce(s);
+      if (isDeadCat) {
+        return null; // Block re-entry - dead cat bounce detected
       }
 
-      const recoveryPct = ctx.state.config.dex_reentry_recovery_pct ?? 15;
-      const minMomentum = ctx.state.config.dex_reentry_min_momentum ?? 70;
+      ctx.log("DexMomentum", "cooldown_cleared_price_recovery", {
+        symbol: s.symbol,
+        exitPrice: cooldown.exitPrice.toFixed(6),
+        currentPrice: s.priceUsd.toFixed(6),
+        recoveryPct: (((s.priceUsd - cooldown.exitPrice) / cooldown.exitPrice) * 100).toFixed(1) + "%",
+        chartVerified: reentryBirdeye ? "yes" : "skipped",
+      });
+      delete ctx.state.dexStopLossCooldowns[s.tokenAddress];
+      return s;
+    }
 
-      // Allow re-entry if price has recovered X% above exit price
-      const priceRecoveryThreshold = cooldown.exitPrice * (1 + recoveryPct / 100);
-      if (s.priceUsd >= priceRecoveryThreshold) {
-        ctx.log("DexMomentum", "cooldown_cleared_price_recovery", {
-          symbol: s.symbol,
-          exitPrice: cooldown.exitPrice.toFixed(6),
-          currentPrice: s.priceUsd.toFixed(6),
-          recoveryPct: (((s.priceUsd - cooldown.exitPrice) / cooldown.exitPrice) * 100).toFixed(1) + "%",
-        });
-        delete ctx.state.dexStopLossCooldowns[s.tokenAddress];
-        return true;
+    // Allow re-entry if momentum score is very strong AND minimum time has passed
+    // This prevents immediate re-entry on dead cat bounces
+    const minCooldownMs = 5 * 60 * 1000; // 5 minutes minimum after any stop loss
+    const timeSinceExit = Date.now() - cooldown.exitTime;
+
+    if (s.momentumScore >= minMomentum && timeSinceExit >= minCooldownMs) {
+      // FIX 2: Also verify high-momentum re-entries with chart analysis
+      const isDeadCat = await isDeadCatBounce(s);
+      if (isDeadCat) {
+        return null; // Block re-entry - dead cat bounce detected
       }
 
-      // Allow re-entry if momentum score is very strong AND minimum time has passed
-      // This prevents immediate re-entry on dead cat bounces
-      const minCooldownMs = 5 * 60 * 1000; // 5 minutes minimum after any stop loss
-      const timeSinceExit = Date.now() - cooldown.exitTime;
+      ctx.log("DexMomentum", "cooldown_cleared_high_momentum", {
+        symbol: s.symbol,
+        momentumScore: s.momentumScore.toFixed(1),
+        threshold: minMomentum,
+        minutesSinceExit: Math.round(timeSinceExit / 60000),
+        chartVerified: reentryBirdeye ? "yes" : "skipped",
+      });
+      delete ctx.state.dexStopLossCooldowns[s.tokenAddress];
+      return s;
+    } else if (s.momentumScore >= minMomentum && timeSinceExit < minCooldownMs) {
+      ctx.log("DexMomentum", "cooldown_waiting_min_time", {
+        symbol: s.symbol,
+        momentumScore: s.momentumScore.toFixed(1),
+        minutesSinceExit: Math.round(timeSinceExit / 60000),
+        minMinutesRequired: 5,
+      });
+      return null;
+    }
 
-      if (s.momentumScore >= minMomentum && timeSinceExit >= minCooldownMs) {
-        ctx.log("DexMomentum", "cooldown_cleared_high_momentum", {
-          symbol: s.symbol,
-          momentumScore: s.momentumScore.toFixed(1),
-          threshold: minMomentum,
-          minutesSinceExit: Math.round(timeSinceExit / 60000),
-        });
-        delete ctx.state.dexStopLossCooldowns[s.tokenAddress];
-        return true;
-      } else if (s.momentumScore >= minMomentum && timeSinceExit < minCooldownMs) {
-        ctx.log("DexMomentum", "cooldown_waiting_min_time", {
-          symbol: s.symbol,
-          momentumScore: s.momentumScore.toFixed(1),
-          minutesSinceExit: Math.round(timeSinceExit / 60000),
-          minMinutesRequired: 5,
-        });
-        return false;
-      }
+    // Fallback: allow re-entry after time expires
+    if (Date.now() >= cooldown.fallbackExpiry) {
+      ctx.log("DexMomentum", "cooldown_cleared_time_expired", {
+        symbol: s.symbol,
+      });
+      delete ctx.state.dexStopLossCooldowns[s.tokenAddress];
+      return s;
+    }
 
-      // Fallback: allow re-entry after time expires
-      if (Date.now() >= cooldown.fallbackExpiry) {
-        ctx.log("DexMomentum", "cooldown_cleared_time_expired", {
-          symbol: s.symbol,
-        });
-        delete ctx.state.dexStopLossCooldowns[s.tokenAddress];
-        return true;
-      }
+    return null;
+  });
 
-      return false;
-    })
-    .slice(0, 3);
+  const candidateResults = await Promise.all(candidatePromises);
+  const candidates = candidateResults.filter((s): s is NonNullable<typeof s> => s !== null).slice(0, 3);
 
   // Count current positions by tier for limit checks
   const tierCounts = {
@@ -811,7 +999,7 @@ export async function recordDexSnapshot(ctx: HarnessContext): Promise<void> {
 
   for (const [tokenAddress, pos] of Object.entries(ctx.state.dexPositions)) {
     const signal = ctx.state.dexSignals.find(s => s.tokenAddress === tokenAddress);
-    const currentPrice = signal?.priceUsd || pos.entryPrice;
+    const currentPrice = signal?.priceUsd || pos.lastKnownPrice || pos.entryPrice;
     const currentValueUsd = pos.tokenAmount * currentPrice;
     positionValueSol += currentValueUsd / solPriceUsd;
   }
@@ -889,7 +1077,7 @@ export async function closeAllDexPositions(ctx: HarnessContext, reason: string):
   for (const pos of positions) {
     // Find current signal for price
     const signal = ctx.state.dexSignals.find(s => s.tokenAddress === pos.tokenAddress);
-    const currentPrice = signal?.priceUsd ?? pos.entryPrice;
+    const currentPrice = signal?.priceUsd || pos.lastKnownPrice || pos.entryPrice;
 
     const pnlPct = ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100;
     const exitValue = (currentPrice / pos.entryPrice) * pos.entrySol;

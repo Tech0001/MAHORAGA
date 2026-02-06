@@ -74,7 +74,17 @@ export async function handleStatus(ctx: RoutesContext): Promise<Response> {
   // Calculate DEX positions with current P&L
   const dexPositionsWithPnL = Object.entries(ctx.state.dexPositions).map(([tokenAddress, pos]) => {
     const currentSignal = ctx.state.dexSignals.find(s => s.tokenAddress === tokenAddress);
-    const currentPrice = currentSignal?.priceUsd || pos.entryPrice;
+    // Use signal price > lastKnownPrice > entryPrice (consistent with trading logic)
+    let currentPrice: number;
+    if (currentSignal?.priceUsd) {
+      currentPrice = currentSignal.priceUsd;
+      // Update lastKnownPrice when we have a signal
+      pos.lastKnownPrice = currentPrice;
+    } else if (pos.lastKnownPrice) {
+      currentPrice = pos.lastKnownPrice;
+    } else {
+      currentPrice = pos.entryPrice;
+    }
 
     // Handle legacy positions where tokenAmount/entrySol wasn't stored or is NaN
     const entrySol = (pos.entrySol == null || Number.isNaN(pos.entrySol))

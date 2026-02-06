@@ -78,12 +78,18 @@ export const DEFAULT_CONFIG: AgentConfig = {
   dex_lottery_position_sol: 0.02,
   dex_lottery_max_positions: 5,
   dex_lottery_trailing_activation: 100,
+  dex_lottery_stop_loss_pct: 35, // Stop loss for lottery tier
+  // Microspray tier (ultra-small positions)
+  dex_microspray_stop_loss_pct: 35, // Stop loss for microspray tier
+  // Breakout tier
+  dex_breakout_stop_loss_pct: 35, // Stop loss for breakout tier
   // Tier 1: Early Gems
   dex_early_min_age_days: 0.25, // 6 hours minimum (after lottery window)
   dex_early_max_age_days: 3, // Tier 1 ends at 3 days
   dex_early_min_liquidity: 30000, // $30k minimum for early tier
   dex_early_min_legitimacy: 40, // Must have website OR socials (40 points)
   dex_early_position_size_pct: 50, // Use 50% of normal position size (higher risk)
+  dex_early_stop_loss_pct: 35, // Stop loss for early tier
   // Tier 2: Established
   dex_established_min_age_days: 3, // Tier 2 starts at 3 days
   dex_established_max_age_days: 14, // Tier 2 ends at 14 days
@@ -98,7 +104,7 @@ export const DEFAULT_CONFIG: AgentConfig = {
   dex_max_position_sol: 1.0, // Max cap per position
   dex_position_size_pct: 33, // Use ~1/3 of balance per position (divides across max_positions)
   dex_take_profit_pct: 100, // Take profit at 100% - let winners run
-  dex_stop_loss_pct: 30, // Stop loss at 30% - survive meme coin volatility
+  dex_stop_loss_pct: 35, // Stop loss at 35% - survive meme coin volatility (was 30%, too tight)
   dex_max_positions: 3,
   dex_slippage_model: "realistic", // Simulate realistic DEX slippage
   dex_gas_fee_sol: 0.005, // ~$1 gas fee per trade at $200/SOL
@@ -114,6 +120,10 @@ export const DEFAULT_CONFIG: AgentConfig = {
   dex_trailing_stop_enabled: true, // Enable trailing stop loss
   dex_trailing_stop_activation_pct: 50, // Trailing stop activates after 50% gain (let it run first)
   dex_trailing_stop_distance_pct: 25, // Trailing stop is 25% below peak (room for pullbacks)
+  // Scaling trailing stop - earlier activation with proportional protection
+  dex_scaling_trailing_enabled: true, // Enable scaling trailing stop (activates at +10%)
+  dex_scaling_trailing_activation_pct: 10, // Activate at +10% gain
+  dex_scaling_max_drawdown_pct: 45, // Max drawdown from peak capped at 45%
   // Chart pattern analysis defaults
   dex_chart_analysis_enabled: true, // Enable Birdeye chart analysis before entry
   dex_chart_min_entry_score: 40, // Minimum entry score (0-100) - avoid worst setups
@@ -124,8 +134,7 @@ export const DEFAULT_CONFIG: AgentConfig = {
   crisis_vix_critical: 45, // VIX above 45 = full crisis
   crisis_hy_spread_warning: 400, // HY spread above 400bps = warning
   crisis_hy_spread_critical: 600, // HY spread above 600bps = crisis
-  crisis_btc_breakdown_price: 50000, // BTC below $50k = risk-off signal
-  crisis_btc_weekly_drop_pct: -20, // BTC down 20%+ in a week = red flag
+  crisis_btc_weekly_drop_pct: -20, // BTC down 20%+ in a week = red flag (% is the real signal, not absolute price)
   crisis_stocks_above_200ma_warning: 30, // Less than 30% above 200MA = warning
   crisis_stocks_above_200ma_critical: 20, // Less than 20% above 200MA = crisis
   crisis_stablecoin_depeg_threshold: 0.985, // USDT below $0.985 = crisis
@@ -142,8 +151,8 @@ export const DEFAULT_CONFIG: AgentConfig = {
   crisis_ted_spread_critical: 1.0, // TED spread above 100bps = banking crisis
   crisis_dxy_elevated: 105, // Dollar index above 105 = risk-off mode
   crisis_dxy_critical: 110, // Dollar index above 110 = flight to safety
-  crisis_usdjpy_warning: 140, // Yen strengthening below 140 = carry unwind starts
-  crisis_usdjpy_critical: 130, // Yen below 130 = carry trade blowing up
+  crisis_usdjpy_warning: 145, // Yen strengthening below 145 = carry unwind starts (current ~150)
+  crisis_usdjpy_critical: 138, // Yen below 138 = carry trade blowing up
   crisis_kre_weekly_warning: -10, // Regional banks down 10%/week = stress
   crisis_kre_weekly_critical: -20, // Regional banks down 20%/week = crisis
   crisis_silver_weekly_warning: 10, // Silver up 10%/week = monetary concerns

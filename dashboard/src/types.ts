@@ -114,11 +114,13 @@ export interface Config {
   dex_microspray_enabled?: boolean       // Enable micro-spray tier
   dex_microspray_position_sol?: number   // Ultra-tiny position (default 0.005 SOL)
   dex_microspray_max_positions?: number  // Max concurrent micro-spray positions (default 10)
+  dex_microspray_stop_loss_pct?: number // Stop loss for microspray tier (default 35%)
   // Breakout (2-6h) - detect rapid 5-min pumps [TOGGLE]
   dex_breakout_enabled?: boolean         // Enable breakout tier
   dex_breakout_min_5m_pump?: number      // Minimum 5-min pump % to trigger (default 50)
   dex_breakout_position_sol?: number     // Position size (default 0.015 SOL)
   dex_breakout_max_positions?: number    // Max concurrent breakout positions (default 5)
+  dex_breakout_stop_loss_pct?: number   // Stop loss for breakout tier (default 35%)
   // Lottery (1-6h) - current working tier
   dex_lottery_enabled?: boolean          // Enable lottery tier
   dex_lottery_min_age_hours?: number     // Min age in hours (default 1)
@@ -127,12 +129,14 @@ export interface Config {
   dex_lottery_position_sol?: number      // Fixed tiny position size in SOL (default 0.02)
   dex_lottery_max_positions?: number     // Max concurrent lottery positions (default 5)
   dex_lottery_trailing_activation?: number // Auto-enable trailing stop at this gain % (default 100)
+  dex_lottery_stop_loss_pct?: number     // Stop loss for lottery tier (default 35%)
   // Tier 1: Early gems (6h-3d)
   dex_early_min_age_days?: number      // Tier 1: Early gems (default 0.25 = 6 hours)
   dex_early_max_age_days?: number      // Tier 1: Max age (default 3 days)
   dex_early_min_liquidity?: number     // Tier 1: Lower liquidity ok (default $30k)
   dex_early_min_legitimacy?: number    // Tier 1: Must have socials/website (default 40)
   dex_early_position_size_pct?: number // Tier 1: Smaller positions (default 50% of normal)
+  dex_early_stop_loss_pct?: number     // Stop loss for early tier (default 35%)
   // Tier 2: Established (3-14d)
   dex_established_min_age_days?: number // Tier 2: Established (default 3 days)
   dex_established_max_age_days?: number // Tier 2: Max age (default 14 days)
@@ -158,6 +162,10 @@ export interface Config {
   dex_reentry_recovery_pct?: number
   dex_reentry_min_momentum?: number
   dex_breaker_min_cooldown_minutes?: number
+  // Scaling trailing stop
+  dex_scaling_trailing_enabled?: boolean       // Enable scaling trailing stop
+  dex_scaling_trailing_activation_pct?: number // Activation threshold (default: 10%)
+  dex_scaling_max_drawdown_pct?: number        // Max drawdown from peak (default: 45%)
 
   // Crisis Mode - Black Swan Protection
   crisis_mode_enabled?: boolean
@@ -166,7 +174,7 @@ export interface Config {
   crisis_vix_critical?: number
   crisis_hy_spread_warning?: number
   crisis_hy_spread_critical?: number
-  crisis_btc_breakdown_price?: number
+  // crisis_btc_breakdown_price removed - % change is the real signal, not absolute price
   crisis_btc_weekly_drop_pct?: number
   crisis_stocks_above_200ma_warning?: number
   crisis_stocks_above_200ma_critical?: number

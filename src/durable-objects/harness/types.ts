@@ -171,8 +171,10 @@ export interface AgentConfig {
   dex_position_size_pct: number; // [TUNE] Position size as % of balance (0-100)
   dex_take_profit_pct: number; // [TUNE] Take profit %
   dex_stop_loss_pct: number; // [TUNE] Stop loss % (established tier default)
-  dex_lottery_stop_loss_pct?: number; // [TUNE] Stop loss % for lottery/microspray/breakout tiers (default: 20)
-  dex_early_stop_loss_pct?: number; // [TUNE] Stop loss % for early tier (default: 25)
+  dex_lottery_stop_loss_pct?: number; // [TUNE] Stop loss % for lottery tier
+  dex_microspray_stop_loss_pct?: number; // [TUNE] Stop loss % for microspray tier
+  dex_breakout_stop_loss_pct?: number; // [TUNE] Stop loss % for breakout tier
+  dex_early_stop_loss_pct?: number; // [TUNE] Stop loss % for early tier
   dex_max_positions: number; // [TUNE] Max concurrent DEX positions
   dex_slippage_model: "none" | "conservative" | "realistic"; // [TUNE] Slippage simulation model
   dex_gas_fee_sol: number; // [TUNE] Simulated gas fee per trade in SOL (default: 0.005)
@@ -198,6 +200,12 @@ export interface AgentConfig {
   dex_trailing_stop_enabled: boolean; // [TOGGLE] Enable trailing stop loss for DEX positions
   dex_trailing_stop_activation_pct: number; // [TUNE] % gain required before trailing stop activates
   dex_trailing_stop_distance_pct: number; // [TUNE] Distance from peak price for trailing stop
+  dex_breakeven_buffer_pct?: number; // [TUNE] Buffer above entry for breakeven stop (default: 2%)
+
+  // Scaling trailing stop - earlier activation, scales protection with gains
+  dex_scaling_trailing_enabled?: boolean;       // [TOGGLE] Enable scaling trailing stop
+  dex_scaling_trailing_activation_pct?: number; // [TUNE] Activation threshold (default: 10%)
+  dex_scaling_max_drawdown_pct?: number;        // [TUNE] Max drawdown from peak (default: 45%)
 
   // Chart pattern analysis - use Birdeye OHLCV data to avoid buying tops
   dex_chart_analysis_enabled: boolean; // [TOGGLE] Enable chart pattern analysis before entry
@@ -210,8 +218,7 @@ export interface AgentConfig {
   crisis_vix_critical: number; // [TUNE] VIX level for full crisis (default: 45)
   crisis_hy_spread_warning: number; // [TUNE] High yield spread bps for warning (default: 400)
   crisis_hy_spread_critical: number; // [TUNE] High yield spread bps for crisis (default: 600)
-  crisis_btc_breakdown_price: number; // [TUNE] BTC price that signals risk-off (default: 50000)
-  crisis_btc_weekly_drop_pct: number; // [TUNE] BTC weekly drop % for risk signal (default: -20)
+  crisis_btc_weekly_drop_pct: number; // [TUNE] BTC weekly drop % for risk signal (default: -20) - % change is the real signal, not absolute price
   crisis_stocks_above_200ma_warning: number; // [TUNE] % stocks above 200MA for warning (default: 30)
   crisis_stocks_above_200ma_critical: number; // [TUNE] % stocks above 200MA for crisis (default: 20)
   crisis_stablecoin_depeg_threshold: number; // [TUNE] USDT price below this = crisis (default: 0.985)
@@ -348,6 +355,7 @@ export interface DexPosition {
   entryLiquidity: number; // Track entry liquidity for exit safety (#13)
   tier?: "microspray" | "breakout" | "lottery" | "early" | "established"; // Track for tier-specific rules
   missedScans?: number; // Track consecutive scans where token wasn't in signals (grace period for lost_momentum)
+  lastKnownPrice?: number; // Last price seen when signal was available (for when signal is missing)
 }
 
 export interface DexPortfolioSnapshot {
@@ -373,7 +381,9 @@ export interface DexTradeRecord {
     | "stop_loss"
     | "lost_momentum"
     | "manual"
-    | "trailing_stop";
+    | "trailing_stop"
+    | "breakeven_stop"
+    | "scaling_trailing";
 }
 
 export interface DexTradingMetrics {

@@ -1111,6 +1111,7 @@ export default function App() {
                         <th className="hud-label text-right py-2 px-2">Price</th>
                         <th className="hud-label text-right py-2 px-2">24h</th>
                         <th className="hud-label text-right py-2 px-2">1h</th>
+                        <th className="hud-label text-right py-2 px-2">5m</th>
                         <th className="hud-label text-right py-2 px-2">Liquidity</th>
                         <th className="hud-label text-right py-2 px-2">Volume</th>
                         <th className="hud-label text-right py-2 px-2">Score</th>
@@ -1154,6 +1155,12 @@ export default function App() {
                             sig.priceChange1h >= 0 ? 'text-hud-success' : 'text-hud-error'
                           )}>
                             {formatPercent(sig.priceChange1h)}
+                          </td>
+                          <td className={clsx(
+                            'hud-value-sm text-right py-2 px-2',
+                            sig.priceChange5m >= 0 ? 'text-hud-success' : 'text-hud-error'
+                          )}>
+                            {formatPercent(sig.priceChange5m)}
                           </td>
                           <td className="hud-value-sm text-right py-2 px-2">
                             ${(sig.liquidity / 1000).toFixed(0)}k

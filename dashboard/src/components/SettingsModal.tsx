@@ -651,6 +651,16 @@ export function SettingsModal({ config, onSave, onClose }: SettingsModalProps) {
                   disabled={!localConfig.dex_enabled || !localConfig.dex_microspray_enabled}
                 />
               </div>
+              <div>
+                <label className="hud-label block mb-1">Stop Loss (%)</label>
+                <input
+                  type="number"
+                  className="hud-input w-full"
+                  value={localConfig.dex_microspray_stop_loss_pct || 35}
+                  onChange={e => handleChange('dex_microspray_stop_loss_pct', Number(e.target.value))}
+                  disabled={!localConfig.dex_enabled || !localConfig.dex_microspray_enabled}
+                />
+              </div>
 
               {/* BREAKOUT TIER */}
               <div className="col-span-2 mt-4 pt-4 border-t border-hud-line">
@@ -698,6 +708,16 @@ export function SettingsModal({ config, onSave, onClose }: SettingsModalProps) {
                   disabled={!localConfig.dex_enabled || !localConfig.dex_breakout_enabled}
                 />
               </div>
+              <div>
+                <label className="hud-label block mb-1">Stop Loss (%)</label>
+                <input
+                  type="number"
+                  className="hud-input w-full"
+                  value={localConfig.dex_breakout_stop_loss_pct || 35}
+                  onChange={e => handleChange('dex_breakout_stop_loss_pct', Number(e.target.value))}
+                  disabled={!localConfig.dex_enabled || !localConfig.dex_breakout_enabled}
+                />
+              </div>
 
               {/* LOTTERY TIER */}
               <div className="col-span-2 mt-4 pt-4 border-t border-hud-line">
@@ -742,6 +762,16 @@ export function SettingsModal({ config, onSave, onClose }: SettingsModalProps) {
                   className="hud-input w-full"
                   value={localConfig.dex_lottery_min_liquidity || 15000}
                   onChange={e => handleChange('dex_lottery_min_liquidity', Number(e.target.value))}
+                  disabled={!localConfig.dex_enabled || !localConfig.dex_lottery_enabled}
+                />
+              </div>
+              <div>
+                <label className="hud-label block mb-1">Stop Loss (%)</label>
+                <input
+                  type="number"
+                  className="hud-input w-full"
+                  value={localConfig.dex_lottery_stop_loss_pct || 35}
+                  onChange={e => handleChange('dex_lottery_stop_loss_pct', Number(e.target.value))}
                   disabled={!localConfig.dex_enabled || !localConfig.dex_lottery_enabled}
                 />
               </div>
@@ -804,6 +834,16 @@ export function SettingsModal({ config, onSave, onClose }: SettingsModalProps) {
                   disabled={!localConfig.dex_enabled}
                 />
               </div>
+              <div>
+                <label className="hud-label block mb-1">Stop Loss (%)</label>
+                <input
+                  type="number"
+                  className="hud-input w-full"
+                  value={localConfig.dex_early_stop_loss_pct || 35}
+                  onChange={e => handleChange('dex_early_stop_loss_pct', Number(e.target.value))}
+                  disabled={!localConfig.dex_enabled}
+                />
+              </div>
 
               {/* ESTABLISHED TIER */}
               <div className="col-span-2 mt-4 pt-4 border-t border-hud-line">
@@ -842,6 +882,54 @@ export function SettingsModal({ config, onSave, onClose }: SettingsModalProps) {
                   onChange={e => handleChange('dex_established_min_liquidity', Number(e.target.value))}
                   disabled={!localConfig.dex_enabled}
                 />
+              </div>
+              <div>
+                <label className="hud-label block mb-1">Stop Loss (%)</label>
+                <input
+                  type="number"
+                  className="hud-input w-full"
+                  value={localConfig.dex_stop_loss_pct || 35}
+                  onChange={e => handleChange('dex_stop_loss_pct', Number(e.target.value))}
+                  disabled={!localConfig.dex_enabled}
+                />
+                <p className="text-[9px] text-hud-text-dim mt-1">Default for established tier</p>
+              </div>
+
+              {/* SCALING TRAILING STOP */}
+              <div className="col-span-2 mt-4 pt-4 border-t border-hud-line">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="hud-input w-4 h-4"
+                    checked={localConfig.dex_scaling_trailing_enabled ?? true}
+                    onChange={e => handleChange('dex_scaling_trailing_enabled', e.target.checked ? 1 : 0)}
+                    disabled={!localConfig.dex_enabled}
+                  />
+                  <span className="hud-label text-hud-success">SCALING TRAILING STOP</span>
+                </label>
+                <p className="text-[9px] text-hud-text-dim mt-1">Lock in profits early. At +10%: breakeven floor. At +100%: +55% floor. Max 45% drawdown from peak.</p>
+              </div>
+              <div>
+                <label className="hud-label block mb-1">Activation (%)</label>
+                <input
+                  type="number"
+                  className="hud-input w-full"
+                  value={localConfig.dex_scaling_trailing_activation_pct || 10}
+                  onChange={e => handleChange('dex_scaling_trailing_activation_pct', Number(e.target.value))}
+                  disabled={!localConfig.dex_enabled || !localConfig.dex_scaling_trailing_enabled}
+                />
+                <p className="text-[9px] text-hud-text-dim mt-1">Activate at this gain %</p>
+              </div>
+              <div>
+                <label className="hud-label block mb-1">Max Drawdown (%)</label>
+                <input
+                  type="number"
+                  className="hud-input w-full"
+                  value={localConfig.dex_scaling_max_drawdown_pct || 45}
+                  onChange={e => handleChange('dex_scaling_max_drawdown_pct', Number(e.target.value))}
+                  disabled={!localConfig.dex_enabled || !localConfig.dex_scaling_trailing_enabled}
+                />
+                <p className="text-[9px] text-hud-text-dim mt-1">Max drop from peak (e.g., 45% = +155% floor at +200%)</p>
               </div>
 
               <div className="col-span-2 mt-4 p-2 bg-hud-bg-dark rounded border border-hud-line">

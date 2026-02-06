@@ -385,7 +385,52 @@ export async function gatherDexMomentum(ctx: HarnessContext): Promise<void> {
       minPriceChange24h: ctx.state.config.dex_min_price_change,
     });
 
-    ctx.state.dexSignals = signals;
+    // Preserve signals for tokens that have open positions (don't drop price data)
+    const openPositionAddresses = new Set(Object.keys(ctx.state.dexPositions));
+    const newSignalAddresses = new Set(signals.map(s => s.tokenAddress));
+
+    // Keep old signals for open positions that aren't in the new scan
+    const preservedSignals = ctx.state.dexSignals.filter(s =>
+      openPositionAddresses.has(s.tokenAddress) && !newSignalAddresses.has(s.tokenAddress)
+    );
+
+    if (preservedSignals.length > 0) {
+      ctx.log("DexMomentum", "preserving_signals_for_positions", {
+        preserved: preservedSignals.map(s => s.symbol),
+        reason: "Token has open position but not in current scan",
+      });
+    }
+
+    // Refresh prices for open positions that aren't in the new scan
+    if (preservedSignals.length > 0) {
+      try {
+        const addressesToRefresh = preservedSignals.map(s => s.tokenAddress);
+        const freshPairs = await dexScreener.getMultipleTokens("solana", addressesToRefresh);
+
+        // Update preserved signals with fresh prices
+        for (const sig of preservedSignals) {
+          const freshPair = freshPairs.find(p => p.baseToken?.address === sig.tokenAddress);
+          if (freshPair) {
+            sig.priceUsd = parseFloat(freshPair.priceUsd || "0");
+            sig.liquidity = freshPair.liquidity?.usd || sig.liquidity;
+            sig.priceChange24h = freshPair.priceChange?.h24 || 0;
+            sig.priceChange6h = freshPair.priceChange?.h6 || 0;
+            sig.priceChange1h = freshPair.priceChange?.h1 || 0;
+            sig.priceChange5m = freshPair.priceChange?.m5 || 0;
+
+            ctx.log("DexMomentum", "refreshed_position_price", {
+              symbol: sig.symbol,
+              price: sig.priceUsd.toFixed(10),
+              liquidity: "$" + Math.round(sig.liquidity).toLocaleString(),
+            });
+          }
+        }
+      } catch (error) {
+        ctx.log("DexMomentum", "price_refresh_error", { error: String(error) });
+      }
+    }
+
+    ctx.state.dexSignals = [...signals, ...preservedSignals];
     ctx.state.lastDexScanRun = Date.now();
 
     // Add to signalCache so they show in dashboard active signals

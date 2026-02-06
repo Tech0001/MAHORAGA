@@ -31,7 +31,10 @@
       "Bash(lsof:*)",
       "Bash(__NEW_LINE_7c84d5f56ca9d907__ echo \"\")",
       "Bash(wc:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(source .dev.vars)",
+      "Bash(export ALPACA_API_KEY=PKGR2CT2MXH2EAHUVVIBU4HSJO)",
+      "Bash(export ALPACA_API_SECRET=2VUwoULKWFh98kLJciviZEsEe3xhMjQKrMVPtGtukQ7s)"
     ]
   }
 }

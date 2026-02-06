@@ -108,8 +108,9 @@ export class BirdeyeProvider {
         continue;
       }
 
-      // Non-retryable error
-      throw new Error(`Birdeye API error: ${res.status}`);
+      // Non-retryable error - include status for debugging
+      const errorBody = await res.text().catch(() => "");
+      throw new Error(`Birdeye API error: ${res.status}${errorBody ? ` - ${errorBody.slice(0, 100)}` : ""}`);
     }
 
     // All retries exhausted
@@ -169,6 +170,13 @@ export class BirdeyeProvider {
         recommendation,
       };
     } catch (e) {
+      // 400 errors are expected for new tokens without OHLCV data - don't log as error
+      const errorMsg = String(e);
+      if (errorMsg.includes("400")) {
+        // Expected case - token too new for chart data
+        return null;
+      }
+      // Unexpected error - log it
       console.error(`[Birdeye] Chart analysis failed for ${tokenAddress}:`, e);
       return null;
     }

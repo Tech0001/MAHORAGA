@@ -295,6 +295,65 @@ async function fetchKRE(): Promise<{ price: number; weeklyChange: number } | nul
 }
 
 /**
+ * Fetch stocks above 200-day moving average (market breadth indicator)
+ * Uses a proxy: calculates % of major sector ETFs above their 200MA
+ * Low readings = weak market breadth = bearish signal
+ */
+async function fetchStocksAbove200MA(): Promise<number | null> {
+  try {
+    // Use 11 sector ETFs as proxy for market breadth
+    const sectorETFs = ["XLK", "XLF", "XLV", "XLE", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE", "XLC"];
+
+    const results = await Promise.all(
+      sectorETFs.map(async (symbol) => {
+        try {
+          const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=250d`;
+          const resp = await fetch(url, {
+            headers: { "User-Agent": "Mozilla/5.0 (compatible; MAHORAGA/1.0)" }
+          });
+          if (!resp.ok) return null;
+
+          const data = await resp.json() as {
+            chart?: { result?: Array<{
+              meta?: { regularMarketPrice?: number };
+              indicators?: { quote?: Array<{ close?: (number | null)[] }> }
+            }> }
+          };
+
+          const result = data.chart?.result?.[0];
+          const currentPrice = result?.meta?.regularMarketPrice;
+          const closes = result?.indicators?.quote?.[0]?.close;
+
+          if (!currentPrice || !closes || closes.length < 200) return null;
+
+          // Calculate 200-day moving average
+          const validCloses = closes.filter((c): c is number => c != null && c > 0);
+          if (validCloses.length < 200) return null;
+
+          const last200 = validCloses.slice(-200);
+          const ma200 = last200.reduce((a, b) => a + b, 0) / 200;
+
+          return currentPrice > ma200;
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    // Calculate percentage above 200MA
+    const validResults = results.filter((r): r is boolean => r !== null);
+    if (validResults.length < 6) return null; // Need at least 6 sectors for meaningful reading
+
+    const aboveCount = validResults.filter(r => r).length;
+    const pctAbove = (aboveCount / validResults.length) * 100;
+
+    return pctAbove;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Fetch Silver weekly momentum
  * Strong silver momentum can signal monetary crisis expectations
  */
@@ -343,6 +402,7 @@ export async function fetchCrisisIndicators(fredApiKey?: string): Promise<Crisis
     usdJpy,
     kreData,
     silverMomentum,
+    stocksAbove200MA,
   ] = await Promise.all([
     fetchVIX(),
     fetchBTCData(),
@@ -356,6 +416,7 @@ export async function fetchCrisisIndicators(fredApiKey?: string): Promise<Crisis
     fetchUsdJpy(),
     fetchKRE(),
     fetchSilverMomentum(),
+    fetchStocksAbove200MA(),
   ]);
 
   return {
@@ -384,8 +445,8 @@ export async function fetchCrisisIndicators(fredApiKey?: string): Promise<Crisis
     goldSilverRatio,
     silverWeeklyChange: silverMomentum,
 
-    // Market Breadth
-    stocksAbove200MA: null, // TODO: Requires market breadth data source
+    // Market Breadth (uses sector ETF proxy)
+    stocksAbove200MA,
 
     // Fed & Liquidity
     fedBalanceSheet: fedBalance?.value ?? null,
